@@ -1,0 +1,13 @@
+node_modules/
+dist/
+build/
+.env
+.env.*
+!.env.example
+
+# Personal Claude Code instructions (not shared with the team)
+CLAUDE.local.md
+
+# Editor/OS
+.DS_Store
+*.log
