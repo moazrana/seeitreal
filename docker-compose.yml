@@ -1,0 +1,35 @@
+# Local development only. Never used in production — prod DB credentials
+# come from real managed infrastructure, configured via .env (see spec §7.1).
+services:
+  mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ar_menu_dev
+      MYSQL_USER: ar_menu
+      MYSQL_PASSWORD: ar_menu_dev_password
+      MYSQL_ROOT_PASSWORD: ar_menu_dev_root_password
+    ports:
+      # Host port 3307 (not the MySQL default 3306) — kept free for other
+      # local uses. Container-internal port is still 3306.
+      - '3307:3306'
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'mysqladmin',
+          'ping',
+          '-h',
+          'localhost',
+          '-u',
+          'root',
+          '-par_menu_dev_root_password',
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  mysql_data:

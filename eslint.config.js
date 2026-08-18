@@ -7,7 +7,18 @@ import eslintConfigPrettier from 'eslint-config-prettier';
 
 export default tseslint.config(
   {
-    ignores: ['**/dist/**', '**/build/**', '**/node_modules/**', '**/*.glb', '**/*.usdz'],
+    // backend/ and frontend/ each own their own eslint config (flat config
+    // doesn't cascade) — this root config covers shared/ and any top-level
+    // files only.
+    ignores: [
+      '**/dist/**',
+      '**/build/**',
+      '**/node_modules/**',
+      '**/*.glb',
+      '**/*.usdz',
+      'backend/**',
+      'frontend/**',
+    ],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,

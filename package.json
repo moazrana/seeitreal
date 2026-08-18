@@ -2,13 +2,15 @@
   "name": "ar-menu-saas",
   "private": true,
   "version": "0.0.0",
+  "type": "module",
   "workspaces": [
     "backend",
     "frontend",
     "shared"
   ],
   "scripts": {
-    "lint": "eslint .",
+    "postinstall": "npm run build -w shared",
+    "lint": "eslint . && npm run lint --workspaces --if-present",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },

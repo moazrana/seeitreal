@@ -1,0 +1,428 @@
+// Prisma schema — AR Menu SaaS
+// Source of truth for the data model is AR-Menu-SaaS-Development-Spec.md §5.
+// Never hand-edit the database schema; every change here must go through
+// `prisma migrate dev` (dev) / `prisma migrate deploy` (prod) — see spec §8.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enums (string values kept in sync with shared/src/enums.ts)
+// ---------------------------------------------------------------------------
+
+enum UserRole {
+  owner
+  admin
+}
+
+enum ArStatus {
+  pending
+  generating
+  qa
+  live
+}
+
+enum DealStatus {
+  draft
+  active
+  ended
+}
+
+enum QrTargetType {
+  item
+  deal
+  menu
+}
+
+enum AnalyticsEventType {
+  scan
+  ar_launch
+}
+
+enum SubscriptionPlan {
+  starter
+  growth
+  pro
+}
+
+enum SubscriptionStatus {
+  active
+  past_due
+  canceled
+}
+
+enum ChargeType {
+  subscription
+  item_setup
+  deal_campaign
+}
+
+enum ChargeStatus {
+  pending
+  paid
+  failed
+  refunded
+}
+
+enum SupportTicketStatus {
+  open
+  in_progress
+  resolved
+  closed
+}
+
+enum SupportTicketPriority {
+  low
+  normal
+  high
+}
+
+enum TicketSenderRole {
+  owner
+  admin
+}
+
+enum FeedbackType {
+  suggestion
+  complaint
+  praise
+}
+
+enum FeedbackStatus {
+  new
+  reviewed
+}
+
+// ---------------------------------------------------------------------------
+// Models
+// ---------------------------------------------------------------------------
+
+model User {
+  id                  Int       @id @default(autoincrement())
+  email               String    @unique @db.VarChar(255)
+  passwordHash        String    @map("password_hash") @db.VarChar(255)
+  role                UserRole  @default(owner)
+  emailVerified       Boolean   @default(false) @map("email_verified")
+  // Auth hardening (spec §7.3): failed-login lockout/backoff.
+  failedLoginAttempts Int       @default(0) @map("failed_login_attempts")
+  lockedUntil         DateTime? @map("locked_until")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  restaurants             Restaurant[]
+  refreshTokens           RefreshToken[]
+  emailVerificationTokens EmailVerificationToken[]
+  passwordResetTokens     PasswordResetToken[]
+  createdTickets          SupportTicket[]          @relation("TicketCreator")
+  ticketMessages          TicketMessage[]
+  feedback                Feedback[]
+  adminAuditLogs          AdminAuditLog[]
+
+  @@map("users")
+}
+
+/// Rotated refresh tokens (spec §7.3). Only a hash of the token is stored;
+/// the raw token is never persisted or logged.
+model RefreshToken {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @map("user_id")
+  tokenHash String   @map("token_hash") @db.VarChar(255)
+  revoked   Boolean  @default(false)
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+/// One-time token emailed to a user to verify their address. Only a hash is
+/// stored; the raw token is what goes in the emailed link.
+model EmailVerificationToken {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @map("user_id")
+  tokenHash String   @map("token_hash") @db.VarChar(255)
+  usedAt    DateTime? @map("used_at")
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("email_verification_tokens")
+}
+
+/// One-time token emailed to a user to reset their password. Only a hash is
+/// stored; the raw token is what goes in the emailed link.
+model PasswordResetToken {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @map("user_id")
+  tokenHash String   @map("token_hash") @db.VarChar(255)
+  usedAt    DateTime? @map("used_at")
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("password_reset_tokens")
+}
+
+model Restaurant {
+  id          Int               @id @default(autoincrement())
+  ownerUserId Int               @map("owner_user_id")
+  name        String            @db.VarChar(200)
+  slug        String            @unique @db.VarChar(200)
+  logoUrl     String?           @map("logo_url") @db.VarChar(2048)
+  planId      SubscriptionPlan? @map("plan_id")
+  createdAt   DateTime          @default(now()) @map("created_at")
+  updatedAt   DateTime          @updatedAt @map("updated_at")
+
+  owner           User             @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  categories      MenuCategory[]
+  items           MenuItem[]
+  deals           Deal[]
+  qrCodes         QrCode[]
+  analyticsEvents AnalyticsEvent[]
+  subscriptions   Subscription[]
+  charges         Charge[]
+  supportTickets  SupportTicket[]
+  feedback        Feedback[]
+
+  @@index([ownerUserId])
+  @@map("restaurants")
+}
+
+model MenuCategory {
+  id           Int      @id @default(autoincrement())
+  restaurantId Int      @map("restaurant_id")
+  name         String   @db.VarChar(150)
+  sortOrder    Int      @default(0) @map("sort_order")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  items      MenuItem[]
+
+  @@index([restaurantId])
+  @@map("menu_categories")
+}
+
+model MenuItem {
+  id           Int      @id @default(autoincrement())
+  restaurantId Int      @map("restaurant_id")
+  categoryId   Int?     @map("category_id")
+  name         String   @db.VarChar(200)
+  description  String?  @db.Text
+  // Money as DECIMAL, never float (spec §5).
+  price        Decimal  @db.Decimal(10, 2)
+  photoUrl     String?  @map("photo_url") @db.VarChar(2048)
+  // AI-rendered preview thumbnail from Tripo's `rendered_image` output
+  // (spec §11.2) — separate from the owner's original upload.
+  previewImageUrl String? @map("preview_image_url") @db.VarChar(2048)
+  modelGlbUrl  String?  @map("model_glb_url") @db.VarChar(2048)
+  modelUsdzUrl String?  @map("model_usdz_url") @db.VarChar(2048)
+  arStatus     ArStatus @default(pending) @map("ar_status")
+  publicSlug   String   @unique @map("public_slug") @db.VarChar(200)
+  // Tripo's task_id for the in-flight/last generation job (spec §11.4:
+  // "log the task_id for every job"). Used by the poll fallback and to
+  // correlate webhook callbacks.
+  tripoTaskId  String?  @map("tripo_task_id") @db.VarChar(255)
+  // Admin's note when rejecting an item out of the QA queue (spec §10.3).
+  qaNote       String?  @map("qa_note") @db.Text
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  restaurant Restaurant    @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  category   MenuCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  dealItems  DealItem[]
+
+  @@index([restaurantId])
+  @@index([categoryId])
+  @@index([arStatus])
+  @@index([tripoTaskId])
+  @@map("menu_items")
+}
+
+model Deal {
+  id           Int        @id @default(autoincrement())
+  restaurantId Int        @map("restaurant_id")
+  title        String     @db.VarChar(200)
+  description  String?    @db.Text
+  promoPrice   Decimal    @map("promo_price") @db.Decimal(10, 2)
+  startsAt     DateTime   @map("starts_at")
+  endsAt       DateTime   @map("ends_at")
+  publicSlug   String     @unique @map("public_slug") @db.VarChar(200)
+  status       DealStatus @default(draft)
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+
+  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  dealItems  DealItem[]
+
+  @@index([restaurantId])
+  @@map("deals")
+}
+
+/// Join table: Deal <-> MenuItem
+model DealItem {
+  id         Int @id @default(autoincrement())
+  dealId     Int @map("deal_id")
+  menuItemId Int @map("menu_item_id")
+
+  deal     Deal     @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  menuItem MenuItem @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+
+  @@unique([dealId, menuItemId])
+  @@map("deal_items")
+}
+
+model QrCode {
+  id           Int          @id @default(autoincrement())
+  restaurantId Int          @map("restaurant_id")
+  targetType   QrTargetType @map("target_type")
+  targetId     Int          @map("target_id")
+  publicUrl    String       @map("public_url") @db.VarChar(2048)
+  imageUrl     String       @map("image_url") @db.VarChar(2048)
+  createdAt    DateTime     @default(now()) @map("created_at")
+  updatedAt    DateTime     @updatedAt @map("updated_at")
+
+  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+
+  @@index([restaurantId])
+  @@index([targetType, targetId])
+  @@map("qr_codes")
+}
+
+/// Analytics: scans and AR launches. IP is stored hashed only (spec §7.7).
+model AnalyticsEvent {
+  id           Int                @id @default(autoincrement())
+  restaurantId Int                @map("restaurant_id")
+  targetType   QrTargetType       @map("target_type")
+  targetId     Int                @map("target_id")
+  eventType    AnalyticsEventType @map("event_type")
+  ipHash       String             @map("ip_hash") @db.VarChar(64)
+  createdAt    DateTime           @default(now()) @map("created_at")
+
+  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+
+  @@index([restaurantId])
+  @@index([targetType, targetId])
+  @@index([createdAt])
+  @@map("analytics_events")
+}
+
+model Subscription {
+  id                    Int                @id @default(autoincrement())
+  restaurantId          Int                @map("restaurant_id")
+  plan                  SubscriptionPlan
+  status                SubscriptionStatus @default(active)
+  currentPeriodEnd      DateTime           @map("current_period_end")
+  gatewayCustomerId     String?            @map("gateway_customer_id") @db.VarChar(255)
+  gatewaySubscriptionId String?            @map("gateway_subscription_id") @db.VarChar(255)
+  createdAt             DateTime           @default(now()) @map("created_at")
+  updatedAt             DateTime           @updatedAt @map("updated_at")
+
+  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+
+  @@index([restaurantId])
+  @@map("subscriptions")
+}
+
+/// Invoice / Charge (spec §5 names this "Invoice / Charge" — one table).
+model Charge {
+  id           Int          @id @default(autoincrement())
+  restaurantId Int          @map("restaurant_id")
+  type         ChargeType
+  amount       Decimal      @db.Decimal(10, 2)
+  status       ChargeStatus @default(pending)
+  // Payment gateway reference (e.g. Stripe invoice/charge id). Never store
+  // raw card/payment data (spec §7.7).
+  gatewayRef   String?      @map("gateway_ref") @db.VarChar(255)
+  createdAt    DateTime     @default(now()) @map("created_at")
+  updatedAt    DateTime     @updatedAt @map("updated_at")
+
+  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+
+  @@index([restaurantId])
+  @@map("charges")
+}
+
+model SupportTicket {
+  id              Int                   @id @default(autoincrement())
+  restaurantId    Int                   @map("restaurant_id")
+  createdByUserId Int                   @map("created_by_user_id")
+  subject         String                @db.VarChar(200)
+  status          SupportTicketStatus   @default(open)
+  priority        SupportTicketPriority @default(normal)
+  createdAt       DateTime              @default(now()) @map("created_at")
+  updatedAt       DateTime              @updatedAt @map("updated_at")
+
+  restaurant Restaurant      @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  createdBy  User            @relation("TicketCreator", fields: [createdByUserId], references: [id], onDelete: Cascade)
+  messages   TicketMessage[]
+
+  @@index([restaurantId])
+  @@index([status])
+  @@map("support_tickets")
+}
+
+model TicketMessage {
+  id           Int              @id @default(autoincrement())
+  ticketId     Int              @map("ticket_id")
+  senderUserId Int              @map("sender_user_id")
+  senderRole   TicketSenderRole @map("sender_role")
+  body         String           @db.Text
+  createdAt    DateTime         @default(now()) @map("created_at")
+
+  ticket SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  sender User          @relation(fields: [senderUserId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId])
+  @@map("ticket_messages")
+}
+
+model Feedback {
+  id              Int            @id @default(autoincrement())
+  restaurantId    Int            @map("restaurant_id")
+  createdByUserId Int            @map("created_by_user_id")
+  type            FeedbackType
+  rating          Int?           @db.TinyInt
+  message         String         @db.Text
+  status          FeedbackStatus @default(new)
+  createdAt       DateTime       @default(now()) @map("created_at")
+
+  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  createdBy  User       @relation(fields: [createdByUserId], references: [id], onDelete: Cascade)
+
+  @@index([restaurantId])
+  @@index([status])
+  @@map("feedback")
+}
+
+/// Audit trail of every admin action (spec §10: "Log every admin action —
+/// who did what, when — to an audit trail"). Append-only; never updated or
+/// deleted by application code.
+model AdminAuditLog {
+  id           Int      @id @default(autoincrement())
+  adminUserId  Int      @map("admin_user_id")
+  action       String   @db.VarChar(100)
+  targetType   String?  @map("target_type") @db.VarChar(50)
+  targetId     Int?     @map("target_id")
+  // Free-form context (e.g. rejection note) — never secrets/tokens (spec §7.7).
+  metadata     String?  @db.Text
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  admin User @relation(fields: [adminUserId], references: [id], onDelete: Cascade)
+
+  @@index([adminUserId])
+  @@index([targetType, targetId])
+  @@map("admin_audit_logs")
+}

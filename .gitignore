@@ -4,6 +4,11 @@ build/
 .env
 .env.*
 !.env.example
+docker-compose.override.yml
+
+# Local-disk storage driver's upload directory (dev/self-hosted only —
+# production uses real object storage). Never commit diner/owner uploads.
+backend/var/
 
 # Personal Claude Code instructions (not shared with the team)
 CLAUDE.local.md

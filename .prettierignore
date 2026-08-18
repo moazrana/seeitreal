@@ -3,3 +3,11 @@ build/
 node_modules/
 *.glb
 *.usdz
+
+# Frontend scaffold owns its own tooling (oxlint) and default Vite style.
+frontend/
+
+# Fixed source-of-truth docs — not reformatted.
+AR-Menu-SaaS-Development-Spec.md
+CLAUDE.md
+CLAUDE.local.md
