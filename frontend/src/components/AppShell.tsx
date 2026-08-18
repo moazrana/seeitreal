@@ -15,6 +15,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     <div className="app-shell">
       <header className="app-header">
         <Link to="/restaurants" className="app-logo">
+          <img src="/logo.svg" alt="" width="28" height="28" className="app-logo-mark" />
           AR Menu
         </Link>
         {user && (

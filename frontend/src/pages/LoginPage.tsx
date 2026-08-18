@@ -30,6 +30,7 @@ export function LoginPage() {
   return (
     <div className="auth-page">
       <form className="auth-card" onSubmit={handleSubmit}>
+        <img src="/logo.svg" alt="" width="48" height="48" className="auth-logo" />
         <h1>Log in</h1>
         <ErrorBanner message={error} />
         <label>
