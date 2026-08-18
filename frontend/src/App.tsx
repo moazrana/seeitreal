@@ -1,6 +1,8 @@
+import { UserRole } from '@ar-menu/shared';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { AuthProvider } from './context/AuthContext';
+import { AdminQaQueuePage } from './pages/AdminQaQueuePage';
 import { LoginPage } from './pages/LoginPage';
 import { RestaurantDetailPage } from './pages/RestaurantDetailPage';
 import { RestaurantsPage } from './pages/RestaurantsPage';
@@ -25,6 +27,14 @@ export default function App() {
           element={
             <ProtectedRoute>
               <RestaurantDetailPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/qa-queue"
+          element={
+            <ProtectedRoute role={UserRole.ADMIN}>
+              <AdminQaQueuePage />
             </ProtectedRoute>
           }
         />

@@ -43,6 +43,10 @@ export interface MenuItem {
   qaNote: string | null;
 }
 
+export interface QaQueueItem extends MenuItem {
+  restaurant: { id: number; name: string; slug: string };
+}
+
 export interface ApiErrorBody {
   statusCode: number;
   message: string | string[];
