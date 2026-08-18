@@ -142,7 +142,7 @@ describe('TripoGenerationService', () => {
   });
 
   describe('handleTaskResult', () => {
-    it('ignores a still-processing status (no item update)', async () => {
+    it('ignores a still-running status (no item update)', async () => {
       prisma.menuItem.findFirst.mockResolvedValueOnce({
         id: 1,
         tripoTaskId: 'task_1',
@@ -150,7 +150,7 @@ describe('TripoGenerationService', () => {
 
       await service.handleTaskResult({
         taskId: 'task_1',
-        status: 'processing',
+        status: 'running',
         progress: 40,
       });
 

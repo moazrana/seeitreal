@@ -4,15 +4,26 @@
  * both are JS-rendered apps this environment couldn't fully scrape, and
  * third-party mirrors/aggregators disagree slightly on exact field names).
  *
- * VERIFY BEFORE PRODUCTION USE: no request in this module has been made
- * against a real Tripo account (no API key was available while building
- * this). The wire format is isolated entirely in TripoClientService's
- * private request-builder / response-parser methods — if field names are
- * off, that's the only place to fix.
+ * TripoTaskStatus confirmed 2026-08-18 against a real Tripo account/task on
+ * staging: the original guess ('pending'/'processing') was wrong — Tripo
+ * actually returns 'queued'/'running', which silently fell through to the
+ * "ended in failure" branch in TripoGenerationService and flagged a
+ * still-running item for QA. Full 8-value enum confirmed via
+ * https://github.com/VAST-AI-Research/tripo-python-sdk/blob/master/docs/API.md.
+ * The rest of the wire format (request/response field names) is still
+ * unverified — isolated in TripoClientService's private request-builder /
+ * response-parser methods if something else turns out to be off.
  */
 
 export type TripoTaskStatus =
-  'pending' | 'processing' | 'success' | 'failed' | 'cancelled' | 'banned';
+  | 'queued'
+  | 'running'
+  | 'success'
+  | 'failed'
+  | 'cancelled'
+  | 'unknown'
+  | 'banned'
+  | 'expired';
 
 export interface TripoSubmitResult {
   taskId: string;

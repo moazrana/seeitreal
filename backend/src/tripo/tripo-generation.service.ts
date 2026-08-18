@@ -90,7 +90,7 @@ export class TripoGenerationService {
       return;
     }
 
-    if (result.status === 'pending' || result.status === 'processing') {
+    if (result.status === 'queued' || result.status === 'running') {
       return; // still working — nothing to do yet
     }
 
