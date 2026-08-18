@@ -140,6 +140,17 @@ class EnvironmentVariables {
   @IsOptional()
   @IsString()
   TRIPO_MODEL_VERSION?: string;
+
+  // --- GLB -> USDZ conversion — optional at boot, same reasoning as the
+  // Tripo vars above; UsdzConversionService falls back to the conventional
+  // /opt/usdz-tools install path (see backend README) if unset.
+  @IsOptional()
+  @IsString()
+  USDZ_PYTHON_BIN?: string;
+
+  @IsOptional()
+  @IsString()
+  USDZ_CONVERTER_SCRIPT?: string;
 }
 
 export function validateEnv(

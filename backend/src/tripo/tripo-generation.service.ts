@@ -167,10 +167,9 @@ export class TripoGenerationService {
       // modelUsdzUrl unset and flag it. AdminService.approve refuses to
       // publish an item missing either URL, so this can't slip through.
       this.logger.warn(
-        `USDZ conversion unavailable for task ${result.taskId}: ${String(err)}`,
+        `USDZ conversion failed for task ${result.taskId}: ${String(err)}`,
       );
-      qaNote =
-        'GLB generated; USDZ conversion is not yet available in this environment (see UsdzConversionService).';
+      qaNote = `GLB generated, but USDZ conversion failed (task ${result.taskId}). See server logs.`;
     }
 
     await this.prisma.menuItem.update({
