@@ -6,7 +6,9 @@ import { restaurantsApi } from '../api/restaurants';
 import type { MenuCategory, MenuItem, Restaurant } from '../api/types';
 import { AppShell } from '../components/AppShell';
 import { ErrorBanner } from '../components/ErrorBanner';
+import { QrCodeModal } from '../components/QrCodeModal';
 import { errorMessage } from '../lib/errors';
+import { itemArViewerUrl } from '../lib/publicUrls';
 import { StatusBadge } from '../components/StatusBadge';
 
 function formatPrice(price: string): string {
@@ -23,6 +25,7 @@ export function RestaurantDetailPage() {
   const [items, setItems] = useState<MenuItem[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busyItemId, setBusyItemId] = useState<number | null>(null);
+  const [qrItem, setQrItem] = useState<MenuItem | null>(null);
 
   const [categoryName, setCategoryName] = useState('');
   const [itemName, setItemName] = useState('');
@@ -126,6 +129,13 @@ export function RestaurantDetailPage() {
 
   return (
     <AppShell>
+      {qrItem && (
+        <QrCodeModal
+          title={qrItem.name}
+          url={itemArViewerUrl(qrItem.publicSlug)}
+          onClose={() => setQrItem(null)}
+        />
+      )}
       <h1>{restaurant?.name ?? 'Restaurant'}</h1>
       <ErrorBanner message={error} />
 
@@ -194,6 +204,21 @@ export function RestaurantDetailPage() {
                     >
                       Generate 3D model
                     </button>
+                    {item.arStatus === 'live' && (
+                      <>
+                        <a
+                          className="link-button"
+                          href={itemArViewerUrl(item.publicSlug)}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          View in AR
+                        </a>
+                        <button type="button" className="link-button" onClick={() => setQrItem(item)}>
+                          Show QR code
+                        </button>
+                      </>
+                    )}
                     <button type="button" className="link-button danger" onClick={() => void handleDeleteItem(item.id)}>
                       Delete
                     </button>

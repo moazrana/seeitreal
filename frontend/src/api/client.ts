@@ -1,6 +1,6 @@
 import type { ApiErrorBody } from './types';
 
-const API_BASE_URL: string = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:4001/api';
+export const API_BASE_URL: string = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:4001/api';
 
 // Access token lives in memory only (never localStorage) — an XSS payload
 // that can run JS can also just call the API directly, but keeping the
