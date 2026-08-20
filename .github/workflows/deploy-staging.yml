@@ -1,0 +1,29 @@
+name: Deploy staging
+
+# Runs the existing deploy.sh on the staging server (as the unprivileged
+# 'deploy' user, never root) whenever staging is pushed. deploy.sh itself
+# does: git pull --ff-only, npm ci, build backend+frontend, prisma migrate
+# deploy, pm2 restart.
+on:
+  push:
+    branches:
+      - staging
+
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.STAGING_SSH_HOST }}
+          username: ${{ secrets.STAGING_SSH_USER }}
+          key: ${{ secrets.STAGING_SSH_KEY }}
+          script: |
+            set -euo pipefail
+            cd /var/www/staging
+            ./deploy.sh
