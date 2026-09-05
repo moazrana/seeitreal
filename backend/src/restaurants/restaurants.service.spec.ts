@@ -1,4 +1,8 @@
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { UserRole } from '@ar-menu/shared';
 import { PrismaService } from '../prisma/prisma.service';
@@ -29,6 +33,7 @@ describe('RestaurantsService', () => {
     ownerUserId: 1,
     name: 'Pizza Place',
     slug: 'pizza-place',
+    suspended: false,
   };
 
   beforeEach(async () => {
@@ -94,6 +99,33 @@ describe('RestaurantsService', () => {
     await expect(
       service.assertOwnership(restaurant.id, otherOwner),
     ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('blocks the owner of a suspended restaurant with 403, not 404 (rootApp restaurant control)', async () => {
+    prisma.restaurant.findUnique.mockResolvedValueOnce({
+      ...restaurant,
+      suspended: true,
+    });
+
+    await expect(
+      service.assertOwnership(restaurant.id, owner),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('lets a legacy UserRole.ADMIN caller bypass suspension too, same as ownership', async () => {
+    const admin = {
+      userId: 99,
+      email: 'admin@example.com',
+      role: UserRole.ADMIN,
+    };
+    prisma.restaurant.findUnique.mockResolvedValueOnce({
+      ...restaurant,
+      suspended: true,
+    });
+
+    await expect(
+      service.assertOwnership(restaurant.id, admin),
+    ).resolves.toEqual({ ...restaurant, suspended: true });
   });
 
   it('uploads and stores a new logo after checking ownership', async () => {

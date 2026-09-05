@@ -87,3 +87,9 @@ export enum FeedbackStatus {
   NEW = 'new',
   REVIEWED = 'reviewed',
 }
+
+/** Root App admin roles (rootApp/ROOT-APP-Implementation-Spec.md §3.9). */
+export enum RootAdminRole {
+  SUPERADMIN = 'superadmin',
+  SUPPORT = 'support',
+}

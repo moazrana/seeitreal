@@ -3,7 +3,6 @@ import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
-import { AdminModule } from './admin/admin.module';
 import { AppController } from './app.controller';
 import { ArViewerModule } from './ar-viewer/ar-viewer.module';
 import { AuthModule } from './auth/auth.module';
@@ -11,6 +10,7 @@ import { validateEnv } from './config/env.validation';
 import { MenuModule } from './menu/menu.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { RestaurantsModule } from './restaurants/restaurants.module';
+import { RootModule } from './root/root.module';
 import { StorageModule } from './storage/storage.module';
 import { TripoModule } from './tripo/tripo.module';
 import { UploadsModule } from './uploads/uploads.module';
@@ -40,8 +40,11 @@ import { UploadsModule } from './uploads/uploads.module';
     RestaurantsModule,
     MenuModule,
     TripoModule,
-    AdminModule,
     ArViewerModule,
+    // Root App (rootApp/ROOT-APP-Implementation-Spec.md) — replaces the old
+    // AdminModule; its QA queue/approve/reject moved here under a fully
+    // separate root-admin identity/session (see RootModule's doc comment).
+    RootModule,
   ],
   controllers: [AppController],
   providers: [

@@ -6,14 +6,23 @@ import { restaurantsApi } from '../api/restaurants';
 import type { MenuCategory, MenuItem, Restaurant } from '../api/types';
 import { AppShell } from '../components/AppShell';
 import { ErrorBanner } from '../components/ErrorBanner';
+import { PhotoCaptureGuide } from '../components/PhotoCaptureGuide';
 import { QrCodeModal } from '../components/QrCodeModal';
 import { errorMessage } from '../lib/errors';
 import { itemArViewerUrl } from '../lib/publicUrls';
 import { StatusBadge } from '../components/StatusBadge';
 
-function formatPrice(price: string): string {
-  const n = Number(price);
-  return Number.isFinite(n) ? `$${n.toFixed(2)}` : price;
+// Up to 5 input photos per dish (documents/3d-model-enhancement.md §1) —
+// mirrors the server-side MAX_ITEM_PHOTOS. Client-side check here is UX
+// only; the server is the authoritative limit.
+const MAX_ITEM_PHOTOS = 5;
+
+// Real-world dish size (documents/TASK-real-world-ar-sizing.md) — stored
+// as mm, shown as cm since that's the more natural unit for a dish's size.
+function formatDimensions(item: MenuItem): string | null {
+  const parts = [item.widthMm, item.heightMm, item.lengthMm];
+  if (parts.every((v) => v === null)) return null;
+  return parts.map((v) => (v === null ? '?' : `${(v / 10).toFixed(1)}`)).join(' × ') + ' cm (W×H×L)';
 }
 
 export function RestaurantDetailPage() {
@@ -29,8 +38,10 @@ export function RestaurantDetailPage() {
 
   const [categoryName, setCategoryName] = useState('');
   const [itemName, setItemName] = useState('');
-  const [itemPrice, setItemPrice] = useState('');
   const [itemCategoryId, setItemCategoryId] = useState('');
+  const [itemWidthMm, setItemWidthMm] = useState('');
+  const [itemHeightMm, setItemHeightMm] = useState('');
+  const [itemLengthMm, setItemLengthMm] = useState('');
 
   function loadAll() {
     Promise.all([
@@ -76,12 +87,16 @@ export function RestaurantDetailPage() {
     try {
       await menuApi.createItem(restaurantId, {
         name: itemName,
-        price: Number(itemPrice),
         categoryId: itemCategoryId ? Number(itemCategoryId) : undefined,
+        widthMm: itemWidthMm ? Number(itemWidthMm) : undefined,
+        heightMm: itemHeightMm ? Number(itemHeightMm) : undefined,
+        lengthMm: itemLengthMm ? Number(itemLengthMm) : undefined,
       });
       setItemName('');
-      setItemPrice('');
       setItemCategoryId('');
+      setItemWidthMm('');
+      setItemHeightMm('');
+      setItemLengthMm('');
       loadAll();
     } catch (err) {
       setError(errorMessage(err));
@@ -98,14 +113,65 @@ export function RestaurantDetailPage() {
     }
   }
 
-  async function handlePhotoChange(itemId: number, e: ChangeEvent<HTMLInputElement>) {
+  async function handlePhotosChange(itemId: number, e: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = ''; // allow re-selecting the same file(s) later
+    if (files.length === 0) return;
+    setError(null);
+    setBusyItemId(itemId);
+    try {
+      await menuApi.uploadPhotos(restaurantId, itemId, files);
+      loadAll();
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusyItemId(null);
+    }
+  }
+
+  async function handleRemovePhoto(itemId: number, photoId: number) {
+    setError(null);
+    setBusyItemId(itemId);
+    try {
+      await menuApi.deletePhoto(restaurantId, itemId, photoId);
+      loadAll();
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusyItemId(null);
+    }
+  }
+
+  async function handleModelChange(itemId: number, e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
-    e.target.value = ''; // allow re-selecting the same file later
+    e.target.value = '';
     if (!file) return;
     setError(null);
     setBusyItemId(itemId);
     try {
-      await menuApi.uploadPhoto(restaurantId, itemId, file);
+      await menuApi.uploadModel(restaurantId, itemId, file);
+      loadAll();
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusyItemId(null);
+    }
+  }
+
+  async function handleSaveDimensions(itemId: number, e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setError(null);
+    const form = new FormData(e.currentTarget);
+    const width = form.get('widthMm') as string;
+    const height = form.get('heightMm') as string;
+    const length = form.get('lengthMm') as string;
+    setBusyItemId(itemId);
+    try {
+      await menuApi.updateItem(restaurantId, itemId, {
+        widthMm: width ? Number(width) : undefined,
+        heightMm: height ? Number(height) : undefined,
+        lengthMm: length ? Number(length) : undefined,
+      });
       loadAll();
     } catch (err) {
       setError(errorMessage(err));
@@ -164,6 +230,7 @@ export function RestaurantDetailPage() {
 
       <section>
         <h2>Menu items</h2>
+        <PhotoCaptureGuide />
         {items.length === 0 ? (
           <p className="empty-state">No items yet — add your first dish below.</p>
         ) : (
@@ -182,28 +249,116 @@ export function RestaurantDetailPage() {
                     <strong>{item.name}</strong>
                     <StatusBadge status={item.arStatus} />
                   </div>
-                  <div className="muted">{formatPrice(item.price)}</div>
+                  <div className="muted">{formatDimensions(item) ?? 'No dimensions set yet'}</div>
+                  <form
+                    className="dimensions-form"
+                    onSubmit={(e) => void handleSaveDimensions(item.id, e)}
+                  >
+                    <input
+                      name="widthMm"
+                      type="number"
+                      min={1}
+                      max={5000}
+                      placeholder="Width (mm)"
+                      defaultValue={item.widthMm ?? ''}
+                      disabled={busyItemId === item.id}
+                    />
+                    <input
+                      name="heightMm"
+                      type="number"
+                      min={1}
+                      max={5000}
+                      placeholder="Height (mm)"
+                      defaultValue={item.heightMm ?? ''}
+                      disabled={busyItemId === item.id}
+                    />
+                    <input
+                      name="lengthMm"
+                      type="number"
+                      min={1}
+                      max={5000}
+                      placeholder="Length (mm)"
+                      defaultValue={item.lengthMm ?? ''}
+                      disabled={busyItemId === item.id}
+                    />
+                    <button type="submit" className="link-button" disabled={busyItemId === item.id}>
+                      Save size
+                    </button>
+                  </form>
                   {item.qaNote && <div className="qa-note">{item.qaNote}</div>}
+                  {item.photos.length > 0 && (
+                    <ul className="photo-thumb-strip">
+                      {item.photos.map((photo) => (
+                        <li key={photo.id} className="photo-thumb">
+                          <img src={photo.url} alt="" />
+                          <button
+                            type="button"
+                            className="photo-thumb-remove"
+                            disabled={busyItemId === item.id}
+                            title="Remove this photo"
+                            onClick={() => void handleRemovePhoto(item.id, photo.id)}
+                          >
+                            ×
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                   <div className="item-card-actions">
-                    <label className="link-button">
-                      {item.photoUrl ? 'Replace photo' : 'Upload photo'}
+                    <label
+                      className="link-button"
+                      title={
+                        item.photos.length >= MAX_ITEM_PHOTOS
+                          ? `A dish can have at most ${MAX_ITEM_PHOTOS} photos`
+                          : undefined
+                      }
+                    >
+                      {item.photos.length > 0 ? 'Add more photos' : 'Upload photos'}
                       <input
                         type="file"
                         accept="image/jpeg,image/png,image/webp"
+                        multiple
                         hidden
-                        disabled={busyItemId === item.id}
-                        onChange={(e) => void handlePhotoChange(item.id, e)}
+                        disabled={busyItemId === item.id || item.photos.length >= MAX_ITEM_PHOTOS}
+                        onChange={(e) => void handlePhotosChange(item.id, e)}
                       />
                     </label>
                     <button
                       type="button"
                       className="link-button"
-                      disabled={!item.photoUrl || item.arStatus !== 'pending' || busyItemId === item.id}
+                      disabled={
+                        !item.photoUrl || !item.widthMm || item.arStatus !== 'pending' || busyItemId === item.id
+                      }
                       onClick={() => void handleGenerateModel(item.id)}
-                      title={!item.photoUrl ? 'Upload a photo first' : undefined}
+                      title={
+                        !item.photoUrl
+                          ? 'Upload a photo first'
+                          : !item.widthMm
+                            ? 'Enter the dish width first'
+                            : item.photos.length >= 2
+                              ? `Generates from all ${Math.min(item.photos.length, 4)} photos (multiview)`
+                              : undefined
+                      }
                     >
                       Generate 3D model
                     </button>
+                    <label
+                      className="link-button"
+                      title={
+                        !item.widthMm
+                          ? 'Enter the dish width first'
+                          : 'Upload a finished .glb instead of generating one (hero dishes)'
+                      }
+                    >
+                      Upload finished GLB
+                      <input
+                        type="file"
+                        accept=".glb,model/gltf-binary"
+                        hidden
+                        disabled={!item.widthMm || item.arStatus !== 'pending' || busyItemId === item.id}
+                        onChange={(e) => void handleModelChange(item.id, e)}
+                      />
+                    </label>
                     {item.arStatus === 'live' && (
                       <>
                         <a
@@ -236,17 +391,6 @@ export function RestaurantDetailPage() {
             <input value={itemName} onChange={(e) => setItemName(e.target.value)} required />
           </label>
           <label>
-            Price
-            <input
-              type="number"
-              min="0.01"
-              step="0.01"
-              value={itemPrice}
-              onChange={(e) => setItemPrice(e.target.value)}
-              required
-            />
-          </label>
-          <label>
             Category
             <select value={itemCategoryId} onChange={(e) => setItemCategoryId(e.target.value)}>
               <option value="">None</option>
@@ -257,6 +401,41 @@ export function RestaurantDetailPage() {
               ))}
             </select>
           </label>
+          <label>
+            Width (mm)
+            <input
+              type="number"
+              min="1"
+              max="5000"
+              value={itemWidthMm}
+              onChange={(e) => setItemWidthMm(e.target.value)}
+              placeholder="e.g. 260 for a 26cm plate"
+            />
+          </label>
+          <label>
+            Height (mm)
+            <input
+              type="number"
+              min="1"
+              max="5000"
+              value={itemHeightMm}
+              onChange={(e) => setItemHeightMm(e.target.value)}
+            />
+          </label>
+          <label>
+            Length (mm)
+            <input
+              type="number"
+              min="1"
+              max="5000"
+              value={itemLengthMm}
+              onChange={(e) => setItemLengthMm(e.target.value)}
+            />
+          </label>
+          <p className="muted">
+            Dimensions can be added later, but width is required before generating a 3D model —
+            it's used to scale the model to true size in AR.
+          </p>
           <button type="submit">Add dish</button>
         </form>
       </section>

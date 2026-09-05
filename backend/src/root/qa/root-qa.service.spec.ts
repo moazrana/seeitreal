@@ -1,20 +1,21 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import { UserRole } from '@ar-menu/shared';
-import { PrismaService } from '../prisma/prisma.service';
-import { AdminService } from './admin.service';
+import { RootAdminRole } from '@ar-menu/shared';
+import { PrismaService } from '../../prisma/prisma.service';
+import { RootAuditService } from '../audit/root-audit.service';
+import { RootQaService } from './root-qa.service';
 
-describe('AdminService', () => {
-  let service: AdminService;
+describe('RootQaService', () => {
+  let service: RootQaService;
   let prisma: {
     menuItem: { findUnique: jest.Mock; update: jest.Mock; findMany: jest.Mock };
-    adminAuditLog: { create: jest.Mock };
   };
+  let audit: { log: jest.Mock };
 
   const admin = {
-    userId: 99,
-    email: 'admin@example.com',
-    role: UserRole.ADMIN,
+    adminId: 99,
+    email: 'root@example.com',
+    role: RootAdminRole.SUPPORT,
   };
 
   beforeEach(async () => {
@@ -24,14 +25,18 @@ describe('AdminService', () => {
         update: jest.fn(),
         findMany: jest.fn(),
       },
-      adminAuditLog: { create: jest.fn() },
     };
+    audit = { log: jest.fn() };
 
     const moduleRef = await Test.createTestingModule({
-      providers: [AdminService, { provide: PrismaService, useValue: prisma }],
+      providers: [
+        RootQaService,
+        { provide: PrismaService, useValue: prisma },
+        { provide: RootAuditService, useValue: audit },
+      ],
     }).compile();
 
-    service = moduleRef.get(AdminService);
+    service = moduleRef.get(RootQaService);
   });
 
   describe('approve', () => {
@@ -43,10 +48,24 @@ describe('AdminService', () => {
         modelUsdzUrl: null,
       });
 
-      await expect(service.approve(1, admin)).rejects.toBeInstanceOf(
+      await expect(service.approve(1, admin, undefined)).rejects.toBeInstanceOf(
         BadRequestException,
       );
       expect(prisma.menuItem.update).not.toHaveBeenCalled();
+    });
+
+    it('refuses to approve an item missing its real-world width', async () => {
+      prisma.menuItem.findUnique.mockResolvedValueOnce({
+        id: 1,
+        arStatus: 'qa',
+        modelGlbUrl: 'https://x/model.glb',
+        modelUsdzUrl: 'https://x/model.usdz',
+        widthMm: null,
+      });
+
+      await expect(service.approve(1, admin, undefined)).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
     });
 
     it('refuses to approve an item not in qa status', async () => {
@@ -55,42 +74,43 @@ describe('AdminService', () => {
         arStatus: 'pending',
       });
 
-      await expect(service.approve(1, admin)).rejects.toBeInstanceOf(
+      await expect(service.approve(1, admin, undefined)).rejects.toBeInstanceOf(
         BadRequestException,
       );
     });
 
-    it('approves and logs an audit entry when both model files are present', async () => {
+    it('approves and audit-logs when both model files and dimensions are present', async () => {
       prisma.menuItem.findUnique.mockResolvedValueOnce({
         id: 1,
         arStatus: 'qa',
         modelGlbUrl: 'https://x/model.glb',
         modelUsdzUrl: 'https://x/model.usdz',
+        widthMm: 260,
       });
       prisma.menuItem.update.mockResolvedValueOnce({ id: 1, arStatus: 'live' });
 
-      await service.approve(1, admin);
+      await service.approve(1, admin, '1.2.3.4');
 
       expect(prisma.menuItem.update).toHaveBeenCalledWith({
         where: { id: 1 },
         data: { arStatus: 'live', qaNote: null },
       });
-      expect(prisma.adminAuditLog.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            adminUserId: admin.userId,
-            action: 'approve_item',
-          }),
-        }),
+      expect(audit.log).toHaveBeenCalledWith(
+        admin.adminId,
+        'approve_item',
+        'menu_item',
+        1,
+        undefined,
+        '1.2.3.4',
       );
     });
 
     it('throws 404 for a non-existent item', async () => {
       prisma.menuItem.findUnique.mockResolvedValueOnce(null);
 
-      await expect(service.approve(999, admin)).rejects.toBeInstanceOf(
-        NotFoundException,
-      );
+      await expect(
+        service.approve(999, admin, undefined),
+      ).rejects.toBeInstanceOf(NotFoundException);
     });
   });
 
@@ -105,30 +125,26 @@ describe('AdminService', () => {
         arStatus: 'pending',
       });
 
-      await service.reject(
-        1,
-        'Model looks distorted, please retake the photo',
-        admin,
-      );
+      await service.reject(1, 'Model looks distorted', admin, '1.2.3.4');
 
       expect(prisma.menuItem.update).toHaveBeenCalledWith({
         where: { id: 1 },
         data: {
           arStatus: 'pending',
-          qaNote: 'Model looks distorted, please retake the photo',
+          qaNote: 'Model looks distorted',
           modelGlbUrl: null,
           modelUsdzUrl: null,
           previewImageUrl: null,
           tripoTaskId: null,
         },
       });
-      expect(prisma.adminAuditLog.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            action: 'reject_item',
-            metadata: expect.any(String) as string,
-          }),
-        }),
+      expect(audit.log).toHaveBeenCalledWith(
+        admin.adminId,
+        'reject_item',
+        'menu_item',
+        1,
+        'Model looks distorted',
+        '1.2.3.4',
       );
     });
   });

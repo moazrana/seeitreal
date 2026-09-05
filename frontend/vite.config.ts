@@ -10,4 +10,14 @@ export default defineConfig({
     port: 4173,
     strictPort: true,
   },
+  optimizeDeps: {
+    // @ar-menu/shared is a symlinked npm-workspace package built to
+    // CommonJS (backend also `require()`s it). Vite's dev server doesn't
+    // pre-bundle (and so doesn't CJS-interop) linked workspace packages by
+    // default, so importing a named export from it 500s in dev with
+    // "does not provide an export named ..." unless forced through
+    // esbuild's dependency optimizer here. `vite build` was unaffected
+    // (Rollup interops CJS automatically) — this only fixes `vite dev`.
+    include: ['@ar-menu/shared'],
+  },
 })

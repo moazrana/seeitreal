@@ -18,9 +18,10 @@ const DEFAULT_BASE_URL = 'https://openapi.tripo3d.ai/v3';
  * never leaves this process (spec §11.4: browser → our API → Tripo only,
  * key never reaches the frontend).
  *
- * All Tripo-specific wire format lives in the two private methods below
- * (`buildSubmitBody` / `parseTaskResult`) — see tripo.types.ts for why
- * this needs a live sanity check before production use.
+ * All Tripo-specific wire format lives in the private request-builder /
+ * response-parser methods below (`buildSubmitBody`, `submitMultiviewToModel`'s
+ * body, `parseTaskResult`) — see tripo.types.ts for why this needs a live
+ * sanity check before production use.
  */
 @Injectable()
 export class TripoClientService {
@@ -36,18 +37,72 @@ export class TripoClientService {
     imageUrl: string,
     options: TripoGenerationOptions = {},
   ): Promise<TripoSubmitResult> {
-    const res = await fetch(`${this.baseUrl}/generation/image-to-model`, {
+    return this.submit(
+      'generation/image-to-model',
+      this.buildSubmitBody(imageUrl, options),
+    );
+  }
+
+  /**
+   * Multiview generation (documents/3d-model-enhancement.md §1) — 2-5 input
+   * photos of the same dish reconstructed from real angles instead of the
+   * AI hallucinating unseen sides. `imageUrls` must already be capped to
+   * whatever Tripo's multiview endpoint accepts (the caller,
+   * TripoGenerationService, caps at 4 and picks the most distinct angles
+   * available — we don't capture per-photo angle labels from the owner).
+   *
+   * Endpoint/body shape extrapolated from the single-image call above (same
+   * `file: {type, url}` shape, pluralized to `files: [...]`) — like the
+   * rest of this file's request-builder, this is NOT yet confirmed against
+   * a live task reaching 'success' and needs a real smoke test before
+   * production use; only `submitImageToModel`'s single-image shape has been
+   * confirmed live (see tripo.types.ts).
+   */
+  async submitMultiviewToModel(
+    imageUrls: string[],
+    options: TripoGenerationOptions = {},
+  ): Promise<TripoSubmitResult> {
+    if (imageUrls.length < 2) {
+      throw new InternalServerErrorException(
+        'Multiview generation requires at least 2 images',
+      );
+    }
+    const body: Record<string, unknown> = {
+      files: imageUrls.map((url) => ({
+        type: this.imageTypeFromUrl(url),
+        url,
+      })),
+      model: this.config.get<string>('TRIPO_MODEL_VERSION') ?? 'v3.1-20260211',
+      texture: options.texture ?? true,
+      pbr: options.pbr ?? true,
+    };
+    if (options.textureQuality) {
+      body.texture_quality = options.textureQuality;
+    }
+    if (options.callbackUrl) {
+      body.callback_url = options.callbackUrl;
+    }
+    return this.submit('generation/multiview-to-model', body);
+  }
+
+  private async submit(
+    path: string,
+    body: Record<string, unknown>,
+  ): Promise<TripoSubmitResult> {
+    const res = await fetch(`${this.baseUrl}/${path}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${this.apiKey()}`,
       },
-      body: JSON.stringify(this.buildSubmitBody(imageUrl, options)),
+      body: JSON.stringify(body),
     });
 
     if (!res.ok) {
       const bodyText = await res.text().catch(() => '');
-      this.logger.error(`Tripo submit failed: ${res.status} ${bodyText}`);
+      this.logger.error(
+        `Tripo submit (${path}) failed: ${res.status} ${bodyText}`,
+      );
       throw new InternalServerErrorException(
         '3D model generation could not be started',
       );
@@ -57,14 +112,14 @@ export class TripoClientService {
     const taskId = json.data?.task_id;
     if (!taskId) {
       this.logger.error(
-        `Tripo submit returned no task_id: ${JSON.stringify(json)}`,
+        `Tripo submit (${path}) returned no task_id: ${JSON.stringify(json)}`,
       );
       throw new InternalServerErrorException(
         '3D model generation could not be started',
       );
     }
 
-    this.logger.log(`Submitted Tripo task ${taskId}`);
+    this.logger.log(`Submitted Tripo task ${taskId} (${path})`);
     return { taskId };
   }
 
@@ -119,6 +174,9 @@ export class TripoClientService {
       texture: options.texture ?? true,
       pbr: options.pbr ?? true,
     };
+    if (options.textureQuality) {
+      body.texture_quality = options.textureQuality;
+    }
     if (options.callbackUrl) {
       body.callback_url = options.callbackUrl;
     }

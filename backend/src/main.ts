@@ -10,6 +10,19 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   const config = app.get(ConfigService);
 
+  // Only when genuinely behind a trusted reverse proxy (nginx) — otherwise
+  // req.ip would trust a client-supplied X-Forwarded-For header, letting
+  // any caller spoof their IP. Needed for IpAllowlistGuard (Root App) to
+  // see real client IPs once deployed; safe to leave off in dev/direct
+  // deployments (default false — see env.validation.ts).
+  if (config.get<boolean>('TRUST_PROXY')) {
+    (
+      app.getHttpAdapter().getInstance() as {
+        set: (key: string, value: unknown) => void;
+      }
+    ).set('trust proxy', 1);
+  }
+
   // Security headers (spec §7.6).
   app.use(helmet());
   // Refresh token is delivered as an httpOnly cookie (spec §7.3, §7.6).

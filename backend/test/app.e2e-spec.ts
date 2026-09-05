@@ -62,7 +62,7 @@ describe('Signup -> restaurant -> menu item (e2e)', () => {
     const itemRes = await request(app.getHttpServer())
       .post(`/api/restaurants/${restaurantId}/items`)
       .set('Authorization', `Bearer ${accessToken}`)
-      .send({ name: 'Cheeseburger', price: 8.5 })
+      .send({ name: 'Cheeseburger' })
       .expect(201);
 
     expect(itemRes.body).toMatchObject({

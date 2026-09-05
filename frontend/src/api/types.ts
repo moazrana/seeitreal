@@ -24,20 +24,30 @@ export interface MenuCategory {
   sortOrder: number;
 }
 
+export interface MenuItemPhoto {
+  id: number;
+  url: string;
+  sortOrder: number;
+}
+
 export interface MenuItem {
   id: number;
   restaurantId: number;
   categoryId: number | null;
   name: string;
   description: string | null;
-  // Serialized as a string by Prisma's Decimal -> JSON (spec: money is
-  // DECIMAL, never float — the frontend must not do float math on it,
-  // just display it).
-  price: string;
   photoUrl: string | null;
+  // Up to 5 input photos, ordered (documents/3d-model-enhancement.md §1).
+  // photoUrl above always mirrors photos[0].url.
+  photos: MenuItemPhoto[];
   previewImageUrl: string | null;
   modelGlbUrl: string | null;
   modelUsdzUrl: string | null;
+  // Real-world dish dimensions in millimetres (documents/TASK-real-world-ar-sizing.md).
+  // Required before generate-model can run and before an item can go live.
+  widthMm: number | null;
+  heightMm: number | null;
+  lengthMm: number | null;
   arStatus: ArStatus;
   publicSlug: string;
   qaNote: string | null;

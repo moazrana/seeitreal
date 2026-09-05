@@ -1,5 +1,6 @@
-import { plainToInstance, Type } from 'class-transformer';
+import { plainToInstance, Transform, Type } from 'class-transformer';
 import {
+  IsBoolean,
   IsEnum,
   IsInt,
   IsOptional,
@@ -141,6 +142,22 @@ class EnvironmentVariables {
   @IsString()
   TRIPO_MODEL_VERSION?: string;
 
+  // Highest-quality texture option (documents/3d-model-enhancement.md §2) —
+  // configurable so it can be tuned without a code change. Defaults to
+  // 'detailed' in TripoGenerationService if unset.
+  @IsOptional()
+  @IsString()
+  TRIPO_TEXTURE_QUALITY?: string;
+
+  // Image-based lighting for the diner AR viewer's <model-viewer>
+  // (documents/3d-model-enhancement.md §3) — a warm kitchen/restaurant HDR
+  // hosted on object storage gives the most realistic result; the literal
+  // string "neutral" (model-viewer's built-in studio IBL) is the safe
+  // baseline used when unset, per the doc's own fallback guidance.
+  @IsOptional()
+  @IsString()
+  AR_ENVIRONMENT_IMAGE_URL?: string;
+
   // --- GLB -> USDZ conversion — optional at boot, same reasoning as the
   // Tripo vars above; UsdzConversionService falls back to the conventional
   // /opt/usdz-tools install path (see backend README) if unset.
@@ -151,6 +168,59 @@ class EnvironmentVariables {
   @IsOptional()
   @IsString()
   USDZ_CONVERTER_SCRIPT?: string;
+
+  // --- Root App (rootApp/ROOT-APP-Implementation-Spec.md §5) — a fully
+  // separate secret/session set from the customer app's JWT_* above, so a
+  // leaked customer secret can never forge a root-admin session or vice
+  // versa.
+  @IsString()
+  @MinLength(32, {
+    message: 'ROOT_JWT_ACCESS_SECRET must be at least 32 characters',
+  })
+  ROOT_JWT_ACCESS_SECRET!: string;
+
+  @IsString()
+  @MinLength(1)
+  ROOT_JWT_ACCESS_EXPIRES_IN = '10m';
+
+  @IsString()
+  @MinLength(32, {
+    message: 'ROOT_JWT_REFRESH_SECRET must be at least 32 characters',
+  })
+  ROOT_JWT_REFRESH_SECRET!: string;
+
+  // Shorter-lived than the customer app's 7d default (spec §5: "short-lived
+  // sessions").
+  @IsString()
+  @MinLength(1)
+  ROOT_JWT_REFRESH_EXPIRES_IN = '12h';
+
+  // Key TOTP secrets are encrypted with at rest (see root/auth/totp.service.ts).
+  @IsString()
+  @MinLength(32, {
+    message: 'ROOT_TOTP_ENCRYPTION_KEY must be at least 32 characters',
+  })
+  ROOT_TOTP_ENCRYPTION_KEY!: string;
+
+  // Comma-separated IPs/CIDRs. Optional at boot (empty = allow all, with a
+  // loud runtime warning — see IpAllowlistGuard) so local dev isn't locked
+  // out by default; must be set before exposing the Root App publicly.
+  @IsOptional()
+  @IsString()
+  ROOT_APP_IP_ALLOWLIST?: string;
+
+  // Only enable once genuinely behind a trusted reverse proxy (nginx) —
+  // see main.ts. Left false by default so req.ip can't be spoofed via a
+  // forged X-Forwarded-For header in any environment that isn't actually
+  // behind one. Deliberately NOT @Type(() => Boolean) — class-transformer's
+  // Boolean() coercion treats the string "false" as truthy (a classic
+  // gotcha), so this parses explicitly instead.
+  @IsOptional()
+  @Transform(
+    ({ value }: { value: unknown }) => value === 'true' || value === true,
+  )
+  @IsBoolean()
+  TRUST_PROXY = false;
 }
 
 export function validateEnv(

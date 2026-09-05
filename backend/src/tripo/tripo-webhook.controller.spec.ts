@@ -2,8 +2,28 @@ import { UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
 import { TripoClientService } from './tripo-client.service';
-import { TripoGenerationService } from './tripo-generation.service';
 import { TripoWebhookController } from './tripo-webhook.controller';
+
+// TripoGenerationService (imported below via require, not a static import)
+// pulls in ModelScalingService, which statically imports
+// @gltf-transform/core — a CJS build that requires the ESM-only
+// `property-graph` package. Real Node 22 resolves that fine, but Jest's
+// own module loader doesn't, so it can't be loaded for real here (see the
+// same note in tripo-generation.service.spec.ts). We only need
+// TripoGenerationService as a DI token in this file (it's always provided
+// via `useValue`), so mocking it away is harmless.
+//
+// Deliberately `require`d (not statically `import`ed) — TS/ts-jest always
+// hoists `import` statements above other statements when compiling to
+// CommonJS, which would load the real module before jest.mock() below had
+// a chance to register the mock.
+jest.mock('./model-scaling.service', () => ({
+  ModelScalingService: jest.fn(),
+}));
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const tripoGenerationModule = require('./tripo-generation.service');
+const { TripoGenerationService } =
+  tripoGenerationModule as typeof import('./tripo-generation.service');
 
 describe('TripoWebhookController', () => {
   let controller: TripoWebhookController;

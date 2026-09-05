@@ -1,4 +1,4 @@
-import { NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { UserRole } from '@ar-menu/shared';
 import { PrismaService } from '../prisma/prisma.service';
@@ -13,6 +13,12 @@ describe('MenuItemsService', () => {
       create: jest.Mock;
       findMany: jest.Mock;
       findUnique: jest.Mock;
+      update: jest.Mock;
+      delete: jest.Mock;
+    };
+    menuItemPhoto: {
+      createMany: jest.Mock;
+      delete: jest.Mock;
       update: jest.Mock;
     };
     menuCategory: { findUnique: jest.Mock };
@@ -29,6 +35,12 @@ describe('MenuItemsService', () => {
         create: jest.fn(),
         findMany: jest.fn(),
         findUnique: jest.fn(),
+        update: jest.fn(),
+        delete: jest.fn(),
+      },
+      menuItemPhoto: {
+        createMany: jest.fn(),
+        delete: jest.fn(),
         update: jest.fn(),
       },
       menuCategory: { findUnique: jest.fn() },
@@ -51,7 +63,7 @@ describe('MenuItemsService', () => {
   it('creates an item with a generated public slug after checking ownership', async () => {
     prisma.menuItem.create.mockResolvedValueOnce({ id: 1, name: 'Burger' });
 
-    await service.create(restaurant.id, owner, { name: 'Burger', price: 9.99 });
+    await service.create(restaurant.id, owner, { name: 'Burger' });
 
     expect(restaurants.assertOwnership).toHaveBeenCalledWith(
       restaurant.id,
@@ -76,7 +88,6 @@ describe('MenuItemsService', () => {
     await expect(
       service.create(restaurant.id, owner, {
         name: 'Burger',
-        price: 9.99,
         categoryId: 5,
       }),
     ).rejects.toBeInstanceOf(NotFoundException);
@@ -94,31 +105,189 @@ describe('MenuItemsService', () => {
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 
-  it('setPhoto stores the new photo and resets AR status/model fields', async () => {
-    prisma.menuItem.findUnique.mockResolvedValueOnce({
-      id: 1,
-      restaurantId: restaurant.id,
-    });
-    imageUpload.processAndStore.mockResolvedValueOnce({
-      key: 'menu-item-photo/abc.webp',
-      url: 'http://localhost:3000/api/uploads/menu-item-photo/abc.webp',
-    });
-    prisma.menuItem.update.mockResolvedValueOnce({ id: 1 });
+  describe('addPhotos', () => {
+    function makeFile(name: string): Express.Multer.File {
+      return { buffer: Buffer.from(name) } as Express.Multer.File;
+    }
 
-    const file = { buffer: Buffer.from('fake') } as Express.Multer.File;
-    await service.setPhoto(restaurant.id, 1, owner, file);
+    it('stores each file independently, sets photoUrl from the first-ever photo, and resets AR status/model fields', async () => {
+      prisma.menuItem.findUnique.mockResolvedValueOnce({
+        id: 1,
+        restaurantId: restaurant.id,
+        photos: [],
+      });
+      imageUpload.processAndStore
+        .mockResolvedValueOnce({ url: 'http://localhost/api/uploads/a.webp' })
+        .mockResolvedValueOnce({ url: 'http://localhost/api/uploads/b.webp' });
+      prisma.menuItem.update.mockResolvedValueOnce({ id: 1 });
 
-    expect(prisma.menuItem.update).toHaveBeenCalledWith({
-      where: { id: 1 },
-      data: {
-        photoUrl: 'http://localhost:3000/api/uploads/menu-item-photo/abc.webp',
-        arStatus: 'pending',
-        modelGlbUrl: null,
-        modelUsdzUrl: null,
-        previewImageUrl: null,
-        tripoTaskId: null,
-        qaNote: null,
-      },
+      await service.addPhotos(restaurant.id, 1, owner, [
+        makeFile('a'),
+        makeFile('b'),
+      ]);
+
+      expect(imageUpload.processAndStore).toHaveBeenCalledTimes(2);
+      expect(prisma.menuItemPhoto.createMany).toHaveBeenCalledWith({
+        data: [
+          {
+            menuItemId: 1,
+            url: 'http://localhost/api/uploads/a.webp',
+            sortOrder: 0,
+          },
+          {
+            menuItemId: 1,
+            url: 'http://localhost/api/uploads/b.webp',
+            sortOrder: 1,
+          },
+        ],
+      });
+      expect(prisma.menuItem.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 1 },
+          data: expect.objectContaining({
+            photoUrl: 'http://localhost/api/uploads/a.webp',
+            arStatus: 'pending',
+            modelGlbUrl: null,
+            modelUsdzUrl: null,
+            previewImageUrl: null,
+            tripoTaskId: null,
+            qaNote: null,
+          }),
+        }),
+      );
+    });
+
+    it('does not overwrite the display photoUrl when photos already exist', async () => {
+      prisma.menuItem.findUnique.mockResolvedValueOnce({
+        id: 1,
+        restaurantId: restaurant.id,
+        photos: [{ id: 1, sortOrder: 0, url: 'existing.webp' }],
+      });
+      imageUpload.processAndStore.mockResolvedValueOnce({ url: 'new.webp' });
+      prisma.menuItem.update.mockResolvedValueOnce({ id: 1 });
+
+      await service.addPhotos(restaurant.id, 1, owner, [makeFile('c')]);
+
+      const call = prisma.menuItem.update.mock.calls[0][0] as {
+        data: Record<string, unknown>;
+      };
+      expect(call.data).not.toHaveProperty('photoUrl');
+      expect(prisma.menuItemPhoto.createMany).toHaveBeenCalledWith({
+        data: [{ menuItemId: 1, url: 'new.webp', sortOrder: 1 }],
+      });
+    });
+
+    it('rejects a batch that would push the item past the 5-photo cap', async () => {
+      prisma.menuItem.findUnique.mockResolvedValueOnce({
+        id: 1,
+        restaurantId: restaurant.id,
+        photos: [1, 2, 3, 4].map((n) => ({
+          id: n,
+          sortOrder: n - 1,
+          url: `p${n}`,
+        })),
+      });
+
+      await expect(
+        service.addPhotos(restaurant.id, 1, owner, [
+          makeFile('a'),
+          makeFile('b'),
+        ]),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(imageUpload.processAndStore).not.toHaveBeenCalled();
+    });
+
+    it('rejects if any single file fails the upload security checks (bubbles the underlying rejection)', async () => {
+      prisma.menuItem.findUnique.mockResolvedValueOnce({
+        id: 1,
+        restaurantId: restaurant.id,
+        photos: [],
+      });
+      imageUpload.processAndStore.mockRejectedValueOnce(
+        new BadRequestException('not a real image'),
+      );
+
+      await expect(
+        service.addPhotos(restaurant.id, 1, owner, [makeFile('bad')]),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('404s when the item belongs to a different restaurant (no cross-tenant leak)', async () => {
+      prisma.menuItem.findUnique.mockResolvedValueOnce({
+        id: 1,
+        restaurantId: 999,
+        photos: [],
+      });
+
+      await expect(
+        service.addPhotos(restaurant.id, 1, owner, [makeFile('a')]),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+  });
+
+  describe('removePhoto', () => {
+    it('deletes the photo, renumbers the rest, and promotes the new first photo', async () => {
+      prisma.menuItem.findUnique.mockResolvedValueOnce({
+        id: 1,
+        restaurantId: restaurant.id,
+        photos: [
+          { id: 10, sortOrder: 0, url: 'p0.webp' },
+          { id: 11, sortOrder: 1, url: 'p1.webp' },
+          { id: 12, sortOrder: 2, url: 'p2.webp' },
+        ],
+      });
+      prisma.menuItem.update.mockResolvedValueOnce({ id: 1 });
+
+      await service.removePhoto(restaurant.id, 1, 10, owner);
+
+      expect(prisma.menuItemPhoto.delete).toHaveBeenCalledWith({
+        where: { id: 10 },
+      });
+      // p1 (sortOrder 1) moves to 0, p2 (sortOrder 2) moves to 1.
+      expect(prisma.menuItemPhoto.update).toHaveBeenCalledWith({
+        where: { id: 11 },
+        data: { sortOrder: 0 },
+      });
+      expect(prisma.menuItemPhoto.update).toHaveBeenCalledWith({
+        where: { id: 12 },
+        data: { sortOrder: 1 },
+      });
+      expect(prisma.menuItem.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 1 },
+          data: expect.objectContaining({ photoUrl: 'p1.webp' }),
+        }),
+      );
+    });
+
+    it('clears photoUrl when the last photo is removed', async () => {
+      prisma.menuItem.findUnique.mockResolvedValueOnce({
+        id: 1,
+        restaurantId: restaurant.id,
+        photos: [{ id: 10, sortOrder: 0, url: 'p0.webp' }],
+      });
+      prisma.menuItem.update.mockResolvedValueOnce({ id: 1 });
+
+      await service.removePhoto(restaurant.id, 1, 10, owner);
+
+      expect(prisma.menuItem.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ photoUrl: null }),
+        }),
+      );
+    });
+
+    it('404s when the photo does not belong to this item', async () => {
+      prisma.menuItem.findUnique.mockResolvedValueOnce({
+        id: 1,
+        restaurantId: restaurant.id,
+        photos: [{ id: 10, sortOrder: 0, url: 'p0.webp' }],
+      });
+
+      await expect(
+        service.removePhoto(restaurant.id, 1, 999, owner),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      expect(prisma.menuItemPhoto.delete).not.toHaveBeenCalled();
     });
   });
 });

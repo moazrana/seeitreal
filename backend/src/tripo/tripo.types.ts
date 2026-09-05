@@ -43,6 +43,11 @@ export interface TripoTaskResult {
 export interface TripoGenerationOptions {
   texture?: boolean;
   pbr?: boolean;
+  /** Highest-quality texture option available (documents/3d-model-enhancement.md
+   * §2), e.g. 'detailed'. Configurable via TRIPO_TEXTURE_QUALITY, not
+   * hardcoded, so it can be tuned without a code change. Omitted from the
+   * request body entirely when unset, rather than guessing a value. */
+  textureQuality?: string;
   /** Tripo notifies this URL via POST when the task finishes (spec §11.1).
    * We append a shared-secret token as a query param for verification. */
   callbackUrl?: string;

@@ -3,12 +3,24 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service';
-import type { AuthenticatedUser } from '../auth/types/authenticated-user.interface';
+import { PrismaService } from '../../prisma/prisma.service';
+import { RootAuditService } from '../audit/root-audit.service';
+import type { AuthenticatedRootAdmin } from '../types/authenticated-root-admin.interface';
 
+/**
+ * 3D model review / QA queue — moved here from the old
+ * backend/src/admin/ module (rootApp/ROOT-APP-Implementation-Spec.md §1,
+ * §3.7, §8: "moves into this app"). Business logic is unchanged from
+ * AdminService.{qaQueue,approve,reject}; only the audit trail (RootAuditLog
+ * instead of AdminAuditLog) and the identity performing the action
+ * (AuthenticatedRootAdmin instead of AuthenticatedUser) differ.
+ */
 @Injectable()
-export class AdminService {
-  constructor(private readonly prisma: PrismaService) {}
+export class RootQaService {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: RootAuditService,
+  ) {}
 
   qaQueue() {
     return this.prisma.menuItem.findMany({
@@ -18,7 +30,11 @@ export class AdminService {
     });
   }
 
-  async approve(itemId: number, admin: AuthenticatedUser) {
+  async approve(
+    itemId: number,
+    admin: AuthenticatedRootAdmin,
+    ip: string | undefined,
+  ) {
     const item = await this.prisma.menuItem.findUnique({
       where: { id: itemId },
     });
@@ -38,16 +54,35 @@ export class AdminService {
         'Cannot approve: item is missing a GLB and/or USDZ model file',
       );
     }
+    // Real-world dimensions are required before an item can go live
+    // (documents/TASK-real-world-ar-sizing.md §2).
+    if (!item.widthMm) {
+      throw new BadRequestException(
+        'Cannot approve: item is missing its real-world width',
+      );
+    }
 
     const updated = await this.prisma.menuItem.update({
       where: { id: itemId },
       data: { arStatus: 'live', qaNote: null },
     });
-    await this.logAction(admin.userId, 'approve_item', 'menu_item', itemId);
+    await this.audit.log(
+      admin.adminId,
+      'approve_item',
+      'menu_item',
+      itemId,
+      undefined,
+      ip,
+    );
     return updated;
   }
 
-  async reject(itemId: number, note: string, admin: AuthenticatedUser) {
+  async reject(
+    itemId: number,
+    note: string,
+    admin: AuthenticatedRootAdmin,
+    ip: string | undefined,
+  ) {
     const item = await this.prisma.menuItem.findUnique({
       where: { id: itemId },
     });
@@ -73,25 +108,14 @@ export class AdminService {
         tripoTaskId: null,
       },
     });
-    await this.logAction(
-      admin.userId,
+    await this.audit.log(
+      admin.adminId,
       'reject_item',
       'menu_item',
       itemId,
       note,
+      ip,
     );
     return updated;
-  }
-
-  private async logAction(
-    adminUserId: number,
-    action: string,
-    targetType: string,
-    targetId: number,
-    metadata?: string,
-  ) {
-    await this.prisma.adminAuditLog.create({
-      data: { adminUserId, action, targetType, targetId, metadata },
-    });
   }
 }

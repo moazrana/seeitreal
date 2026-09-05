@@ -63,7 +63,7 @@ describe('Diner AR viewer (e2e)', () => {
     const res = await request(app.getHttpServer())
       .post(`/api/restaurants/${restaurantId}/items`)
       .set('Authorization', `Bearer ${accessToken}`)
-      .send({ name, price: 9.99, description })
+      .send({ name, description })
       .expect(201);
     return res.body as { id: number; publicSlug: string };
   }

@@ -1,5 +1,6 @@
 import {
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -53,16 +54,28 @@ export class RestaurantsService {
    * resources hang off a restaurant (menu categories/items, deals, ...) —
    * spec §7.3: every protected endpoint must verify both role AND that the
    * resource belongs to the caller. Returns the restaurant on success;
-   * always throws 404 (never 403) on a mismatch so cross-tenant probing
+   * always throws 404 (never 403) on a cross-tenant mismatch so probing
    * can't distinguish "exists but isn't yours" from "doesn't exist".
+   *
+   * Also enforces the Root App's restaurant suspension
+   * (rootApp/ROOT-APP-Implementation-Spec.md §3.2): a suspended
+   * restaurant's owner is blocked here with 403 — distinct from the 404
+   * case above, since they genuinely own it, they just can't act on it
+   * right now. The legacy UserRole.ADMIN bypass ignores suspension too,
+   * same as it already ignores ownership.
    */
   async assertOwnership(restaurantId: number, user: AuthenticatedUser) {
     const restaurant = await this.findOneOrThrow(restaurantId);
-    if (
-      user.role !== UserRole.ADMIN &&
-      restaurant.ownerUserId !== user.userId
-    ) {
+    if (user.role === UserRole.ADMIN) {
+      return restaurant;
+    }
+    if (restaurant.ownerUserId !== user.userId) {
       throw new NotFoundException('Restaurant not found');
+    }
+    if (restaurant.suspended) {
+      throw new ForbiddenException(
+        'This restaurant has been suspended. Contact support for details.',
+      );
     }
     return restaurant;
   }

@@ -9,6 +9,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { RestaurantsService } from '../restaurants/restaurants.service';
 import { StorageService } from '../storage/storage.service';
 import type { AuthenticatedUser } from '../auth/types/authenticated-user.interface';
+import { ModelScalingService } from './model-scaling.service';
 import { TripoClientService } from './tripo-client.service';
 import { UsdzConversionService } from './usdz-conversion.service';
 import type { TripoTaskResult } from './tripo.types';
@@ -16,6 +17,13 @@ import type { TripoTaskResult } from './tripo.types';
 // Poll fallback only looks at jobs that have had a fair chance to arrive
 // via webhook first (spec §11.2: webhook preferred, polling is fallback).
 const POLL_MIN_AGE_MS = 2 * 60 * 1000;
+
+// Tripo's multiview endpoint has a fixed max input count. If an owner
+// uploaded more than this, we cap it here — see
+// TripoClientService.submitMultiviewToModel's doc comment for why (we
+// don't capture per-photo angle labels to pick "the most distinct" by, so
+// this takes the first N in upload order).
+const MAX_MULTIVIEW_IMAGES = 4;
 
 @Injectable()
 export class TripoGenerationService {
@@ -27,6 +35,7 @@ export class TripoGenerationService {
     private readonly tripo: TripoClientService,
     private readonly storage: StorageService,
     private readonly usdz: UsdzConversionService,
+    private readonly modelScaling: ModelScalingService,
     private readonly config: ConfigService,
   ) {}
 
@@ -39,13 +48,29 @@ export class TripoGenerationService {
     await this.restaurants.assertOwnership(restaurantId, user);
     const item = await this.prisma.menuItem.findUnique({
       where: { id: itemId },
+      include: { photos: { orderBy: { sortOrder: 'asc' } } },
     });
     if (!item || item.restaurantId !== restaurantId) {
       throw new NotFoundException('Item not found');
     }
-    if (!item.photoUrl) {
+    // Prefer the ordered `photos` set (documents/3d-model-enhancement.md
+    // §1); fall back to the legacy single `photoUrl` for items created
+    // before that migration backfilled it.
+    const photoUrls = (item.photos ?? []).map((p) => p.url);
+    if (photoUrls.length === 0 && item.photoUrl) {
+      photoUrls.push(item.photoUrl);
+    }
+    if (photoUrls.length === 0) {
       throw new BadRequestException(
         'Upload a photo before generating a 3D model',
+      );
+    }
+    // Real-world width is required up front so the pipeline can always
+    // scale the model it produces (documents/TASK-real-world-ar-sizing.md)
+    // — a generated-but-unscaled model should never exist.
+    if (!item.widthMm) {
+      throw new BadRequestException(
+        'Enter the dish width before generating a 3D model',
       );
     }
     // The item's own status is the debounce/guard (spec §7.4): only a
@@ -58,12 +83,27 @@ export class TripoGenerationService {
     }
 
     const callbackUrl = this.buildCallbackUrl();
-    const { taskId } = await this.tripo.submitImageToModel(item.photoUrl, {
+    const generationOptions = {
       texture: true,
       pbr: true,
+      textureQuality:
+        this.config.get<string>('TRIPO_TEXTURE_QUALITY') ?? 'detailed',
       callbackUrl,
-    });
-    this.logger.log(`Item ${itemId}: submitted Tripo task ${taskId}`);
+    };
+    // Routing (documents/3d-model-enhancement.md §1): a single photo uses
+    // Tripo's single-image endpoint; 2+ use multiview, which reconstructs
+    // the model from real angles instead of hallucinating unseen sides —
+    // the single biggest realism gain of this pipeline.
+    const { taskId } =
+      photoUrls.length === 1
+        ? await this.tripo.submitImageToModel(photoUrls[0], generationOptions)
+        : await this.tripo.submitMultiviewToModel(
+            photoUrls.slice(0, MAX_MULTIVIEW_IMAGES),
+            generationOptions,
+          );
+    this.logger.log(
+      `Item ${itemId}: submitted Tripo task ${taskId} (${photoUrls.length === 1 ? 'single-image' : 'multiview'})`,
+    );
 
     return this.prisma.menuItem.update({
       where: { id: itemId },
@@ -126,7 +166,39 @@ export class TripoGenerationService {
 
     // Tripo's result URL expires in ~24h — download and re-host immediately,
     // never store their URL directly (spec §11.4).
-    const glbBuffer = await this.downloadToBuffer(result.output.modelUrl);
+    let glbBuffer = await this.downloadToBuffer(result.output.modelUrl);
+
+    // Tripo returns models at an arbitrary normalized scale — resize to
+    // the dish's true real-world width before anything else touches the
+    // GLB, so both the hosted GLB and the USDZ derived from it are
+    // life-size (documents/TASK-real-world-ar-sizing.md). triggerGeneration
+    // requires widthMm before a job can even be submitted, so this should
+    // always be set here; the `if` is defense in depth, not the norm.
+    if (item.widthMm) {
+      try {
+        glbBuffer = await this.modelScaling.scaleToRealWidth(
+          glbBuffer,
+          item.widthMm,
+        );
+      } catch (err) {
+        this.logger.error(
+          `Real-world scaling failed for task ${result.taskId}: ${String(err)}`,
+        );
+        await this.prisma.menuItem.update({
+          where: { id: item.id },
+          data: {
+            arStatus: 'qa',
+            qaNote: `3D generation succeeded but real-world scaling failed (task ${result.taskId}). See server logs.`,
+          },
+        });
+        return;
+      }
+    } else {
+      this.logger.warn(
+        `Item ${item.id} has no width_mm — Tripo task ${result.taskId}'s model will not be real-world scaled`,
+      );
+    }
+
     const { url: modelGlbUrl } = await this.storage.putObject({
       key: this.storage.generateKey('model-glb', 'glb'),
       body: glbBuffer,

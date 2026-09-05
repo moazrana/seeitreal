@@ -111,4 +111,13 @@ export const api = {
     formData.append('file', file);
     return apiFetch<T>(path, { method: 'POST', body: formData });
   },
+  // Multi-photo upload (documents/3d-model-enhancement.md §1) — all files
+  // share the 'files' field name, matching the backend's FilesInterceptor.
+  uploadMany: <T>(path: string, files: File[]) => {
+    const formData = new FormData();
+    for (const file of files) {
+      formData.append('files', file);
+    }
+    return apiFetch<T>(path, { method: 'POST', body: formData });
+  },
 };

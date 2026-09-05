@@ -22,7 +22,8 @@ describe('ArViewerService', () => {
     const item = {
       id: 1,
       publicSlug: 'burger-abc',
-      restaurant: { name: 'Demo Diner' },
+      hiddenByAdmin: false,
+      restaurant: { name: 'Demo Diner', suspended: false },
     };
     prisma.menuItem.findUnique.mockResolvedValueOnce(item);
 
@@ -38,6 +39,32 @@ describe('ArViewerService', () => {
     prisma.menuItem.findUnique.mockResolvedValueOnce(null);
     await expect(
       service.findItemByPublicSlug('does-not-exist'),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('throws 404 (not a distinguishable error) when the restaurant is suspended (rootApp restaurant control)', async () => {
+    prisma.menuItem.findUnique.mockResolvedValueOnce({
+      id: 1,
+      publicSlug: 'burger-abc',
+      hiddenByAdmin: false,
+      restaurant: { name: 'Demo Diner', suspended: true },
+    });
+
+    await expect(
+      service.findItemByPublicSlug('burger-abc'),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('throws 404 when the item is hidden by an admin (rootApp item control)', async () => {
+    prisma.menuItem.findUnique.mockResolvedValueOnce({
+      id: 1,
+      publicSlug: 'burger-abc',
+      hiddenByAdmin: true,
+      restaurant: { name: 'Demo Diner', suspended: false },
+    });
+
+    await expect(
+      service.findItemByPublicSlug('burger-abc'),
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 });

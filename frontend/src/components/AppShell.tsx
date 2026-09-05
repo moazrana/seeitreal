@@ -1,5 +1,4 @@
 import type { ReactNode } from 'react';
-import { UserRole } from '@ar-menu/shared';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/useAuth';
 
@@ -21,7 +20,6 @@ export function AppShell({ children }: { children: ReactNode }) {
         </Link>
         {user && (
           <div className="app-header-user">
-            {user.role === UserRole.ADMIN && <Link to="/admin/qa-queue">QA queue</Link>}
             <span className="muted">{user.email}</span>
             <button type="button" className="link-button" onClick={() => void handleLogout()}>
               Log out

@@ -18,6 +18,7 @@ export default tseslint.config(
       '**/*.usdz',
       'backend/**',
       'frontend/**',
+      'rootApp/**',
     ],
   },
   js.configs.recommended,
