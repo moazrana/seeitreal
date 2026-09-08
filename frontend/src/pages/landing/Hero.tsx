@@ -5,7 +5,17 @@ import { Scene } from './Scene';
 export function Hero() {
   return (
     <section id="top" className={styles.hero}>
-      <div className={styles.heroGlow} aria-hidden="true" />
+      <div className={styles.heroCanvas}>
+        <Scene />
+        <div className={styles.heroScrim} aria-hidden="true" />
+        <div className={`${styles.bracket} ${styles.bracketTl}`} aria-hidden="true" />
+        <div className={`${styles.bracket} ${styles.bracketTr}`} aria-hidden="true" />
+        <div className={`${styles.bracket} ${styles.bracketBl}`} aria-hidden="true" />
+        <div className={`${styles.bracket} ${styles.bracketBr}`} aria-hidden="true" />
+        <div className={styles.scanLine} aria-hidden="true" />
+        <div className={styles.heroFade} aria-hidden="true" />
+      </div>
+
       <div className={`${styles.container} ${styles.heroInner}`}>
         <p className={styles.heroPill}>
           <span className={styles.eyebrow}>Augmented reality for menus — and more</span>
@@ -26,20 +36,11 @@ export function Hero() {
             See a live demo
           </a>
         </div>
+      </div>
 
-        <div className={styles.viewfinder}>
-          <Scene />
-          <div className={`${styles.bracket} ${styles.bracketTl}`} aria-hidden="true" />
-          <div className={`${styles.bracket} ${styles.bracketTr}`} aria-hidden="true" />
-          <div className={`${styles.bracket} ${styles.bracketBl}`} aria-hidden="true" />
-          <div className={`${styles.bracket} ${styles.bracketBr}`} aria-hidden="true" />
-          <div className={styles.scanLine} aria-hidden="true" />
-        </div>
-
-        <div className={styles.heroScroll} aria-hidden="true">
-          <span>Scroll</span>
-          <span className={styles.heroScrollLine} />
-        </div>
+      <div className={styles.heroScroll} aria-hidden="true">
+        <span>Scroll</span>
+        <span className={styles.heroScrollLine} />
       </div>
     </section>
   );

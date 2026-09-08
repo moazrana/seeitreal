@@ -282,26 +282,19 @@
 
 .hero {
   position: relative;
-  padding: 168px 0 100px;
+  display: flex;
+  align-items: center;
+  min-height: 100vh;
+  min-height: 100svh;
+  padding: 120px 0 64px;
   text-align: center;
   overflow: clip;
 }
 
-.heroGlow {
-  position: absolute;
-  top: -220px;
-  left: 50%;
-  width: 900px;
-  height: 700px;
-  transform: translateX(-50%);
-  background: radial-gradient(closest-side, rgba(77, 124, 255, 0.16), transparent 70%);
-  pointer-events: none;
-  z-index: 0;
-}
-
 .heroInner {
   position: relative;
-  z-index: 1;
+  z-index: 2;
+  width: 100%;
 }
 
 .heroPill {
@@ -331,10 +324,13 @@
   justify-content: center;
   gap: 14px;
   flex-wrap: wrap;
-  margin-bottom: 72px;
 }
 
 .heroScroll {
+  position: absolute;
+  left: 50%;
+  bottom: 28px;
+  transform: translateX(-50%);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -360,14 +356,13 @@
   }
 }
 
-/* ---------- 3D viewfinder ---------- */
+/* ---------- 3D viewfinder (full-bleed hero background) ---------- */
 
-.viewfinder {
-  position: relative;
-  width: min(560px, 88vw);
-  height: min(560px, 88vw);
-  margin: 0 auto;
-  border-radius: 24px;
+.heroCanvas {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
 }
 
 .sceneCanvas {
@@ -376,50 +371,93 @@
   display: block;
 }
 
+/* Dims the scene behind the headline so text stays readable while the
+ * scan cloud and lighting stay visible toward the hero's edges. */
+.heroScrim {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse 62% 55% at 50% 42%,
+    rgba(10, 11, 20, 0.86) 0%,
+    rgba(10, 11, 20, 0.6) 45%,
+    rgba(10, 11, 20, 0.18) 70%,
+    transparent 88%
+  );
+}
+
+/* Fades the scene into the flat page background at the bottom of the
+ * hero so the next section doesn't start on a hard seam. */
+.heroFade {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 220px;
+  z-index: 1;
+  pointer-events: none;
+  background: linear-gradient(to bottom, transparent, var(--bg));
+}
+
 .bracket {
   position: absolute;
-  width: 34px;
-  height: 34px;
+  z-index: 1;
+  width: 44px;
+  height: 44px;
   border-color: var(--teal);
-  opacity: 0.85;
+  opacity: 0.55;
 }
 
 .bracketTl {
-  top: -6px;
-  left: -6px;
+  top: 88px;
+  left: 24px;
   border-top: 2px solid;
   border-left: 2px solid;
-  border-top-left-radius: 10px;
+  border-top-left-radius: 12px;
 }
 
 .bracketTr {
-  top: -6px;
-  right: -6px;
+  top: 88px;
+  right: 24px;
   border-top: 2px solid;
   border-right: 2px solid;
-  border-top-right-radius: 10px;
+  border-top-right-radius: 12px;
 }
 
 .bracketBl {
-  bottom: -6px;
-  left: -6px;
+  bottom: 32px;
+  left: 24px;
   border-bottom: 2px solid;
   border-left: 2px solid;
-  border-bottom-left-radius: 10px;
+  border-bottom-left-radius: 12px;
 }
 
 .bracketBr {
-  bottom: -6px;
-  right: -6px;
+  bottom: 32px;
+  right: 24px;
   border-bottom: 2px solid;
   border-right: 2px solid;
-  border-bottom-right-radius: 10px;
+  border-bottom-right-radius: 12px;
+}
+
+@media (max-width: 640px) {
+  .bracket {
+    width: 28px;
+    height: 28px;
+  }
+
+  .bracketTl,
+  .bracketTr {
+    top: 72px;
+  }
 }
 
 .scanLine {
   position: absolute;
-  left: 6%;
-  right: 6%;
+  left: 24px;
+  right: 24px;
+  z-index: 1;
   height: 2px;
   background: linear-gradient(90deg, transparent, var(--teal), transparent);
   box-shadow: 0 0 12px rgba(45, 212, 191, 0.7);
