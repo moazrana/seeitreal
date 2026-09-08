@@ -5,10 +5,13 @@ import styles from './landing.module.css';
 const POINT_COUNT = 1400;
 
 /**
- * The hero's live WebGL scene (spec §3): a faceted icosahedron with a
- * violet wireframe overlay, surrounded by a spherical shell of scan points,
- * lit by three brand-colored point lights. Pointer parallax eases the
- * camera toward the cursor; the object auto-rotates and floats gently.
+ * The hero's live WebGL scene (spec §3): a wireframe-only icosahedron —
+ * "the diamond" — hanging in a starfield of scan points that fills the
+ * full page background. The diamond stays a contained, see-through shape
+ * (no solid faces, no scene lighting) so it reads as a rotating line-art
+ * object rather than a big lit blob covering the hero. Pointer parallax
+ * eases the camera toward the cursor; the diamond auto-rotates and floats
+ * gently.
  *
  * Everything created here (geometries, materials, renderer) is disposed on
  * unmount and the render loop's rAF is cancelled, per the porting note in
@@ -36,26 +39,17 @@ export function Scene() {
     const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
-    // The "real" object: a faceted icosahedron with a violet wireframe
-    // overlay reading as 3D scan data.
-    const geometry = new THREE.IcosahedronGeometry(1.7, 0);
-    const material = new THREE.MeshStandardMaterial({
-      color: 0x171a27,
-      flatShading: true,
-      metalness: 0.35,
-      roughness: 0.45,
-    });
-    const mesh = new THREE.Mesh(geometry, material);
-    scene.add(mesh);
-
+    // The "diamond": just the icosahedron's edges, no filled faces — a
+    // see-through line-art object rather than a solid lit shape.
+    const geometry = new THREE.IcosahedronGeometry(1.9, 0);
     const edgesGeometry = new THREE.EdgesGeometry(geometry);
     const edgesMaterial = new THREE.LineBasicMaterial({
-      color: 0x8b5cf6,
+      color: 0x9db4ff,
       transparent: true,
-      opacity: 0.65,
+      opacity: 0.55,
     });
     const wireframe = new THREE.LineSegments(edgesGeometry, edgesMaterial);
-    mesh.add(wireframe);
+    scene.add(wireframe);
 
     // Scan point cloud: ~1,400 points in a spherical shell around the
     // object, evoking an AR scan.
@@ -79,17 +73,6 @@ export function Scene() {
     });
     const points = new THREE.Points(pointsGeometry, pointsMaterial);
     scene.add(points);
-
-    // Low ambient + three brand-colored point lights so the gradient rolls
-    // across the facets as the object rotates.
-    const ambient = new THREE.AmbientLight(0xffffff, 0.25);
-    const blueLight = new THREE.PointLight(0x4d7cff, 8, 14);
-    blueLight.position.set(-3, 2, 3);
-    const violetLight = new THREE.PointLight(0x8b5cf6, 8, 14);
-    violetLight.position.set(3, -1.5, 2.5);
-    const tealLight = new THREE.PointLight(0x2dd4bf, 7, 14);
-    tealLight.position.set(0, 3, -2.5);
-    scene.add(ambient, blueLight, violetLight, tealLight);
 
     // Pointer parallax: camera eases toward the pointer position.
     const pointer = { x: 0, y: 0 };
@@ -118,10 +101,10 @@ export function Scene() {
       const elapsed = clock.getElapsedTime();
 
       if (!reducedMotion) {
-        mesh.rotation.y += 0.0028;
-        mesh.rotation.x += 0.0009;
+        wireframe.rotation.y += 0.0028;
+        wireframe.rotation.x += 0.0009;
         points.rotation.y -= 0.0014;
-        mesh.position.y = Math.sin(elapsed * 0.6) * 0.08;
+        wireframe.position.y = Math.sin(elapsed * 0.6) * 0.08;
       }
 
       cameraOffset.x += (pointer.x * 0.6 - cameraOffset.x) * 0.05;
@@ -142,7 +125,6 @@ export function Scene() {
       reducedMotionQuery.removeEventListener('change', handleMotionChange);
 
       geometry.dispose();
-      material.dispose();
       edgesGeometry.dispose();
       edgesMaterial.dispose();
       pointsGeometry.dispose();

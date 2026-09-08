@@ -356,8 +356,13 @@
   }
 }
 
-/* ---------- 3D viewfinder (full-bleed hero background) ---------- */
+/* ---------- 3D viewfinder ---------- */
 
+/* The canvas itself renders full-bleed (the point cloud spans the whole
+ * hero, like a starfield), but the decorative viewfinder — brackets +
+ * scan-line — frames a smaller, contained box around where the diamond
+ * actually sits, so the "AR viewfinder" reads as focused on the object
+ * rather than on the whole screen. */
 .heroCanvas {
   position: absolute;
   inset: 0;
@@ -371,20 +376,15 @@
   display: block;
 }
 
-/* Dims the scene behind the headline so text stays readable while the
- * scan cloud and lighting stay visible toward the hero's edges. */
-.heroScrim {
+.heroFrame {
   position: absolute;
-  inset: 0;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
   z-index: 1;
+  width: min(620px, 62vw);
+  height: min(600px, 68vh);
   pointer-events: none;
-  background: radial-gradient(
-    ellipse 62% 55% at 50% 42%,
-    rgba(10, 11, 20, 0.86) 0%,
-    rgba(10, 11, 20, 0.6) 45%,
-    rgba(10, 11, 20, 0.18) 70%,
-    transparent 88%
-  );
 }
 
 /* Fades the scene into the flat page background at the bottom of the
@@ -402,62 +402,48 @@
 
 .bracket {
   position: absolute;
-  z-index: 1;
-  width: 44px;
-  height: 44px;
+  width: 34px;
+  height: 34px;
   border-color: var(--teal);
-  opacity: 0.55;
+  opacity: 0.7;
 }
 
 .bracketTl {
-  top: 88px;
-  left: 24px;
+  top: -8px;
+  left: -8px;
   border-top: 2px solid;
   border-left: 2px solid;
-  border-top-left-radius: 12px;
+  border-top-left-radius: 10px;
 }
 
 .bracketTr {
-  top: 88px;
-  right: 24px;
+  top: -8px;
+  right: -8px;
   border-top: 2px solid;
   border-right: 2px solid;
-  border-top-right-radius: 12px;
+  border-top-right-radius: 10px;
 }
 
 .bracketBl {
-  bottom: 32px;
-  left: 24px;
+  bottom: -8px;
+  left: -8px;
   border-bottom: 2px solid;
   border-left: 2px solid;
-  border-bottom-left-radius: 12px;
+  border-bottom-left-radius: 10px;
 }
 
 .bracketBr {
-  bottom: 32px;
-  right: 24px;
+  bottom: -8px;
+  right: -8px;
   border-bottom: 2px solid;
   border-right: 2px solid;
-  border-bottom-right-radius: 12px;
-}
-
-@media (max-width: 640px) {
-  .bracket {
-    width: 28px;
-    height: 28px;
-  }
-
-  .bracketTl,
-  .bracketTr {
-    top: 72px;
-  }
+  border-bottom-right-radius: 10px;
 }
 
 .scanLine {
   position: absolute;
-  left: 24px;
-  right: 24px;
-  z-index: 1;
+  left: 6%;
+  right: 6%;
   height: 2px;
   background: linear-gradient(90deg, transparent, var(--teal), transparent);
   box-shadow: 0 0 12px rgba(45, 212, 191, 0.7);
