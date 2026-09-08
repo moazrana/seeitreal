@@ -1,0 +1,288 @@
+/* Login / signup — styled to match the marketing landing page's dark,
+ * premium look (documents/seeitreal-design-spec.md), scoped under .page so
+ * these tokens and rules never touch the dashboard's global light-theme
+ * index.css (which the rest of the app, e.g. RestaurantsPage, still uses). */
+
+.page {
+  --bg: #0a0b14;
+  --bg-elev: #12141f;
+  --bg-elev-2: #171a27;
+  --ink: #f4f5fb;
+  --muted: #9ba0b4;
+  --faint: #6a6f84;
+  --line: rgba(255, 255, 255, 0.08);
+  --line-strong: rgba(255, 255, 255, 0.16);
+  --blue: #4d7cff;
+  --violet: #8b5cf6;
+  --teal: #2dd4bf;
+  --grad: linear-gradient(105deg, #4d7cff, #8b5cf6 50%, #2dd4bf);
+  --danger: #ff6b6b;
+  --danger-bg: rgba(255, 107, 107, 0.1);
+  --danger-line: rgba(255, 107, 107, 0.35);
+
+  --font-display:
+    'Space Grotesk', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-body: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+
+  position: relative;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 32px;
+  padding: 32px 20px;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-body);
+  overflow: clip;
+}
+
+.page :global(*) {
+  box-sizing: border-box;
+}
+
+.page :global(:focus-visible) {
+  outline: 2px solid var(--teal);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+.glow {
+  position: absolute;
+  top: -260px;
+  left: 50%;
+  width: 820px;
+  height: 620px;
+  transform: translateX(-50%);
+  background: radial-gradient(closest-side, rgba(77, 124, 255, 0.16), transparent 70%);
+  pointer-events: none;
+}
+
+.wordmark {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-display);
+  font-size: 19px;
+  font-weight: 600;
+  text-decoration: none;
+  color: var(--ink);
+}
+
+.wordmarkGlyph {
+  width: 24px;
+  height: 24px;
+  display: block;
+}
+
+.gradText {
+  background: var(--grad);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.cardWrap {
+  position: relative;
+  width: 100%;
+  max-width: 400px;
+  animation: rise 0.5s ease both;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cardWrap {
+    animation: none;
+  }
+}
+
+.bracket {
+  position: absolute;
+  width: 26px;
+  height: 26px;
+  border-color: var(--teal);
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+.bracketTl {
+  top: -8px;
+  left: -8px;
+  border-top: 2px solid;
+  border-left: 2px solid;
+  border-top-left-radius: 10px;
+}
+
+.bracketBr {
+  bottom: -8px;
+  right: -8px;
+  border-bottom: 2px solid;
+  border-right: 2px solid;
+  border-bottom-right-radius: 10px;
+}
+
+.card {
+  position: relative;
+  overflow: hidden;
+  background: var(--bg-elev);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  padding: 40px 36px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.scanLine {
+  position: absolute;
+  top: 0;
+  left: 8%;
+  right: 8%;
+  height: 1px;
+  background: var(--grad);
+  opacity: 0.7;
+}
+
+.heading {
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.title {
+  font-family: var(--font-display);
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+
+.subtitle {
+  color: var(--muted);
+  font-size: 14.5px;
+  margin: 0;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.input {
+  font: inherit;
+  font-family: var(--font-body);
+  font-size: 15px;
+  color: var(--ink);
+  background: var(--bg-elev-2);
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  padding: 11px 14px;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.input::placeholder {
+  color: var(--faint);
+}
+
+.input:focus-visible {
+  outline: none;
+  border-color: var(--teal);
+  box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.15);
+}
+
+.hint {
+  font-weight: 400;
+  color: var(--faint);
+  font-size: 12.5px;
+}
+
+.submit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 4px;
+  padding: 13px 22px;
+  border-radius: 999px;
+  border: none;
+  font-family: var(--font-body);
+  font-size: 15px;
+  font-weight: 600;
+  color: #060712;
+  background: var(--grad);
+  cursor: pointer;
+  transition:
+    transform 0.2s ease,
+    opacity 0.2s ease;
+}
+
+.submit:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.submit:disabled {
+  opacity: 0.6;
+  cursor: default;
+  transform: none;
+}
+
+.switch {
+  text-align: center;
+  font-size: 13.5px;
+  color: var(--muted);
+  margin: 0;
+}
+
+.switch a {
+  color: var(--teal);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.switch a:hover {
+  text-decoration: underline;
+}
+
+/* Override the shared, dashboard-wide .error-banner only inside this
+ * card, so its light-theme colors (index.css) don't show up on our dark
+ * background — the global class itself is untouched for the dashboard. */
+.card :global(.error-banner) {
+  background: var(--danger-bg);
+  color: var(--danger);
+  border: 1px solid var(--danger-line);
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 13.5px;
+}
+
+.footerNote {
+  position: relative;
+  color: var(--faint);
+  font-size: 13px;
+  text-align: center;
+}
