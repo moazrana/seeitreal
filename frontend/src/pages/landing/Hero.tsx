@@ -7,12 +7,13 @@ export function Hero() {
     <section id="top" className={styles.hero}>
       <div className={styles.heroCanvas}>
         <Scene />
-        <div className={styles.heroScrim} aria-hidden="true" />
-        <div className={`${styles.bracket} ${styles.bracketTl}`} aria-hidden="true" />
-        <div className={`${styles.bracket} ${styles.bracketTr}`} aria-hidden="true" />
-        <div className={`${styles.bracket} ${styles.bracketBl}`} aria-hidden="true" />
-        <div className={`${styles.bracket} ${styles.bracketBr}`} aria-hidden="true" />
-        <div className={styles.scanLine} aria-hidden="true" />
+        <div className={styles.heroFrame} aria-hidden="true">
+          <div className={`${styles.bracket} ${styles.bracketTl}`} />
+          <div className={`${styles.bracket} ${styles.bracketTr}`} />
+          <div className={`${styles.bracket} ${styles.bracketBl}`} />
+          <div className={`${styles.bracket} ${styles.bracketBr}`} />
+          <div className={styles.scanLine} />
+        </div>
         <div className={styles.heroFade} aria-hidden="true" />
       </div>
 
