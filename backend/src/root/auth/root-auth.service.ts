@@ -85,15 +85,28 @@ export class RootAuthService {
     }
 
     if (!admin.totpEnabled) {
-      // First-ever login: generate a fresh secret, persist it immediately
-      // (still `totpEnabled: false` until confirmed) so the enrollment
-      // challenge token never needs to carry the secret itself — a bearer
-      // token is a worse place to put sensitive material than the DB.
-      const secret = this.totp.generateSecret();
-      await this.prisma.rootAdminUser.update({
-        where: { id: admin.id },
-        data: { totpSecretEncrypted: this.totp.encryptSecret(secret) },
-      });
+      // First-ever login: generate a fresh secret and persist it (still
+      // `totpEnabled: false` until confirmed) so the enrollment challenge
+      // token never needs to carry the secret itself — a bearer token is
+      // a worse place to put sensitive material than the DB.
+      //
+      // Reuse a secret that's already pending instead of minting a new one
+      // every time: an admin who scans the QR and then reloads the setup
+      // page (losing the router state that carried the otpauthUrl) or
+      // simply logs in again before finishing enrollment would otherwise
+      // silently get a *different* secret each attempt, so the code from
+      // the entry they already scanned into their authenticator app would
+      // never match what's in the DB — indistinguishable from a real
+      // "invalid code" bug.
+      const secret = admin.totpSecretEncrypted
+        ? this.totp.decryptSecret(admin.totpSecretEncrypted)
+        : this.totp.generateSecret();
+      if (!admin.totpSecretEncrypted) {
+        await this.prisma.rootAdminUser.update({
+          where: { id: admin.id },
+          data: { totpSecretEncrypted: this.totp.encryptSecret(secret) },
+        });
+      }
       const token = await this.signChallenge(admin.id, 'totp_setup');
       return {
         status: 'totp_setup_required' as const,

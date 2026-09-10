@@ -192,6 +192,34 @@ describe('RootAuthService', () => {
       );
     });
 
+    it('reuses a still-pending TOTP secret on a repeat login instead of minting a new one', async () => {
+      // Regression test: an admin who scans the QR and then reloads the
+      // setup page (or just logs in again before finishing enrollment)
+      // must keep getting the *same* secret — otherwise the code from the
+      // entry they already scanned into their authenticator app can never
+      // match what's in the DB.
+      prisma.rootAdminUser.findUnique.mockResolvedValueOnce({
+        ...baseAdmin,
+        passwordHash: realPasswordHash,
+        totpEnabled: false,
+        totpSecretEncrypted: 'encrypted-pending',
+      });
+
+      const result = await service.login(
+        { email, password: 'CorrectHorse123' },
+        '1.2.3.4',
+      );
+
+      expect(result.status).toBe('totp_setup_required');
+      expect(totp.decryptSecret).toHaveBeenCalledWith('encrypted-pending');
+      expect(totp.generateSecret).not.toHaveBeenCalled();
+      expect(prisma.rootAdminUser.update).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: { totpSecretEncrypted: expect.any(String) },
+        }),
+      );
+    });
+
     it('requires a TOTP challenge on every login after enrollment', async () => {
       prisma.rootAdminUser.findUnique.mockResolvedValueOnce({
         ...baseAdmin,
