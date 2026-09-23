@@ -20,12 +20,23 @@ export class RestaurantsService {
 
   async create(user: AuthenticatedUser, dto: CreateRestaurantDto) {
     await this.assertSlugAvailable(dto.slug);
+    // One restaurant per account — signup already creates the owner's one
+    // restaurant, so this only ever fires for a pre-existing account that
+    // predates that (or a repeat/racing request).
+    const existing = await this.prisma.restaurant.findFirst({
+      where: { ownerUserId: user.userId },
+      select: { id: true },
+    });
+    if (existing) {
+      throw new ConflictException('Your account already has a restaurant');
+    }
     return this.prisma.restaurant.create({
       data: {
         ownerUserId: user.userId,
         name: dto.name,
         slug: dto.slug,
         logoUrl: dto.logoUrl,
+        address: dto.address,
       },
     });
   }

@@ -1,16 +1,42 @@
+/* Global styles for the authenticated dashboard (RestaurantsPage,
+ * RestaurantDetailPage, AppShell, and shared components). Uses the same
+ * design tokens as the marketing landing page and auth pages
+ * (documents/seeitreal-design-spec.md §2; see also ./pages/landing/landing.module.css
+ * and ./pages/auth/auth.module.css) so the whole app — marketing site,
+ * signup/login, and dashboard — reads as one product instead of a jump
+ * between a dark premium site and a plain light admin tool. Auth/landing
+ * scope their copies of these tokens under a CSS Module root class so
+ * they never leak here; this file is the dashboard's equivalent root. */
+
 :root {
-  --color-bg: #f7f7f8;
-  --color-surface: #ffffff;
-  --color-border: #e2e2e5;
-  --color-text: #1c1c1f;
-  --color-muted: #6b6b74;
-  --color-primary: #2563eb;
-  --color-primary-hover: #1d4ed8;
-  --color-danger: #dc2626;
-  --color-danger-bg: #fef2f2;
-  --radius: 8px;
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
-  color-scheme: light;
+  --bg: #0a0b14;
+  --bg-elev: #12141f;
+  --bg-elev-2: #171a27;
+  --ink: #f4f5fb;
+  --muted: #9ba0b4;
+  --faint: #6a6f84;
+  --line: rgba(255, 255, 255, 0.08);
+  --line-strong: rgba(255, 255, 255, 0.16);
+  --blue: #4d7cff;
+  --violet: #8b5cf6;
+  --teal: #2dd4bf;
+  --grad: linear-gradient(105deg, #4d7cff, #8b5cf6 50%, #2dd4bf);
+  --danger: #ff6b6b;
+  --danger-bg: rgba(255, 107, 107, 0.1);
+  --danger-line: rgba(255, 107, 107, 0.35);
+  --warning: #f5a524;
+  --warning-bg: rgba(245, 165, 36, 0.1);
+  --warning-line: rgba(245, 165, 36, 0.35);
+
+  --font-display:
+    'Space Grotesk', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-body: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+
+  --radius-sm: 8px;
+  --radius: 14px;
+  --radius-lg: 20px;
+
+  color-scheme: dark;
 }
 
 * {
@@ -19,41 +45,66 @@
 
 body {
   margin: 0;
-  font-family:
-    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-  background: var(--color-bg);
-  color: var(--color-text);
+  font-family: var(--font-body);
+  background: var(--bg);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
 }
 
 h1,
 h2,
 h3 {
+  font-family: var(--font-display);
   font-weight: 600;
+  letter-spacing: -0.02em;
   line-height: 1.25;
+}
+
+a {
+  color: var(--teal);
+}
+
+:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.grad-text {
+  background: var(--grad);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
 
 .app-shell {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+  background: var(--bg);
 }
 
 .app-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0.75rem 1.5rem;
-  background: var(--color-surface);
-  border-bottom: 1px solid var(--color-border);
+  padding: 0.85rem 1.5rem;
+  background: rgba(10, 11, 20, 0.85);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--line);
 }
 
 .app-logo {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  font-weight: 700;
+  font-family: var(--font-display);
+  font-weight: 600;
   font-size: 1.1rem;
-  color: var(--color-text);
+  color: var(--ink);
   text-decoration: none;
 }
 
@@ -79,7 +130,7 @@ h3 {
 .page-loading {
   padding: 3rem;
   text-align: center;
-  color: var(--color-muted);
+  color: var(--muted);
 }
 
 /* Forms */
@@ -89,73 +140,91 @@ label {
   gap: 0.35rem;
   font-size: 0.9rem;
   font-weight: 500;
+  color: var(--muted);
 }
 
 input,
 select,
 textarea {
   font: inherit;
-  padding: 0.5rem 0.65rem;
-  border: 1px solid var(--color-border);
-  border-radius: 6px;
-  background: var(--color-surface);
-  color: var(--color-text);
+  font-family: var(--font-body);
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: var(--bg-elev-2);
+  color: var(--ink);
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
 textarea {
   resize: vertical;
 }
 
-input:focus,
-select:focus,
-textarea:focus {
-  outline: 2px solid var(--color-primary);
-  outline-offset: 1px;
+input::placeholder,
+textarea::placeholder {
+  color: var(--faint);
+}
+
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: none;
+  border-color: var(--teal);
+  box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.15);
 }
 
 button {
   font: inherit;
+  font-family: var(--font-body);
   font-weight: 600;
-  padding: 0.55rem 1rem;
-  border-radius: 6px;
+  padding: 0.6rem 1.15rem;
+  border-radius: 999px;
   border: none;
-  background: var(--color-primary);
-  color: white;
+  background: var(--grad);
+  color: #060712;
   cursor: pointer;
+  transition:
+    transform 0.2s ease,
+    opacity 0.2s ease;
 }
 
 button:hover:not(:disabled) {
-  background: var(--color-primary-hover);
+  transform: translateY(-1px);
 }
 
 button:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+  transform: none;
 }
 
 .link-button {
   background: none;
-  color: var(--color-primary);
+  color: var(--teal);
   font-weight: 500;
   padding: 0.25rem 0;
   font-size: 0.9rem;
   cursor: pointer;
+  transform: none;
 }
 
 .link-button:hover:not(:disabled) {
   background: none;
   text-decoration: underline;
+  transform: none;
 }
 
 .link-button.danger {
-  color: var(--color-danger);
+  color: var(--danger);
 }
 
 .inline-form {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  padding: 1.25rem;
+  background: var(--bg-elev);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  padding: 1.4rem;
   margin-top: 1.5rem;
   display: flex;
   flex-direction: column;
@@ -184,24 +253,29 @@ button:disabled {
 }
 
 .card-list-item {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
+  background: var(--bg-elev);
+  border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 0.9rem 1.1rem;
+  transition: border-color 0.2s ease;
+}
+
+.card-list-item:hover {
+  border-color: var(--line-strong);
 }
 
 .card-list-item a {
   text-decoration: none;
-  color: var(--color-text);
+  color: var(--ink);
 }
 
 .empty-state {
-  color: var(--color-muted);
+  color: var(--muted);
   padding: 1rem 0;
 }
 
 .muted {
-  color: var(--color-muted);
+  color: var(--muted);
 }
 
 /* Categories */
@@ -215,8 +289,8 @@ button:disabled {
 }
 
 .chip {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
+  background: var(--bg-elev-2);
+  border: 1px solid var(--line);
   border-radius: 999px;
   padding: 0.3rem 0.5rem 0.3rem 0.85rem;
   font-size: 0.9rem;
@@ -227,18 +301,20 @@ button:disabled {
 
 .chip-remove {
   background: none;
-  color: var(--color-muted);
+  color: var(--muted);
   border-radius: 50%;
   width: 1.3rem;
   height: 1.3rem;
   padding: 0;
   line-height: 1;
   font-size: 1rem;
+  transform: none;
 }
 
 .chip-remove:hover {
-  background: var(--color-danger-bg);
-  color: var(--color-danger);
+  background: var(--danger-bg);
+  color: var(--danger);
+  transform: none;
 }
 
 /* Menu items */
@@ -254,8 +330,8 @@ button:disabled {
 .item-card {
   display: flex;
   gap: 1rem;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
+  background: var(--bg-elev);
+  border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 1rem;
 }
@@ -264,9 +340,9 @@ button:disabled {
   width: 96px;
   height: 96px;
   flex-shrink: 0;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   overflow: hidden;
-  background: var(--color-bg);
+  background: var(--bg-elev-2);
 }
 
 .item-card-photo img {
@@ -282,7 +358,7 @@ button:disabled {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--color-muted);
+  color: var(--muted);
   font-size: 0.75rem;
   text-align: center;
   padding: 0.5rem;
@@ -317,23 +393,24 @@ button:disabled {
 
 .dimensions-form input {
   width: 100px;
-  padding: 0.3rem 0.5rem;
+  padding: 0.35rem 0.5rem;
   font-size: 0.85rem;
 }
 
 .qa-note {
   margin-top: 0.4rem;
   font-size: 0.85rem;
-  color: var(--color-danger);
-  background: var(--color-danger-bg);
-  border-radius: 6px;
+  color: var(--danger);
+  background: var(--danger-bg);
+  border: 1px solid var(--danger-line);
+  border-radius: var(--radius-sm);
   padding: 0.4rem 0.6rem;
 }
 
 /* Photo capture guide (documents/3d-model-enhancement.md §4) */
 .photo-guide {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
+  background: var(--bg-elev);
+  border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 0.75rem 1rem;
   margin-top: 0.75rem;
@@ -355,6 +432,9 @@ button:disabled {
 .photo-guide-columns h4 {
   margin: 0 0 0.4rem;
   font-size: 0.85rem;
+  font-family: var(--font-body);
+  font-weight: 600;
+  letter-spacing: normal;
 }
 
 .photo-guide-list {
@@ -364,7 +444,7 @@ button:disabled {
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
-  color: var(--color-muted);
+  color: var(--muted);
   min-width: 220px;
 }
 
@@ -380,10 +460,10 @@ button:disabled {
   position: relative;
   width: 64px;
   height: 64px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   overflow: hidden;
-  background: var(--color-bg);
-  border: 1px solid var(--color-border);
+  background: var(--bg-elev-2);
+  border: 1px solid var(--line);
 }
 
 .photo-thumb img {
@@ -402,9 +482,10 @@ button:disabled {
   line-height: 1;
   padding: 0;
   border-radius: 50%;
-  background: rgba(0, 0, 0, 0.6);
+  background: rgba(0, 0, 0, 0.65);
   color: #fff;
   font-size: 0.8rem;
+  transform: none;
 }
 
 /* Admin QA queue */
@@ -427,52 +508,85 @@ button:disabled {
   width: 100%;
 }
 
-/* Status badges */
+/* Status badges — translucent tinted chips rather than light-mode pastel
+ * blocks, so they read correctly against the dark surfaces above. */
 .status-badge {
   display: inline-block;
   font-size: 0.75rem;
   font-weight: 600;
-  padding: 0.15rem 0.55rem;
+  padding: 0.15rem 0.6rem;
   border-radius: 999px;
   text-transform: uppercase;
   letter-spacing: 0.02em;
+  border: 1px solid transparent;
 }
 
 .status-pending {
-  background: #f1f1f3;
-  color: var(--color-muted);
+  background: var(--bg-elev-2);
+  color: var(--muted);
+  border-color: var(--line);
 }
 
 .status-generating {
-  background: #fef3c7;
-  color: #92400e;
+  background: rgba(139, 92, 246, 0.14);
+  color: #c4b5fd;
+  border-color: rgba(139, 92, 246, 0.3);
 }
 
 .status-qa {
-  background: #dbeafe;
-  color: #1e40af;
+  background: rgba(77, 124, 255, 0.14);
+  color: #a8c0ff;
+  border-color: rgba(77, 124, 255, 0.3);
 }
 
 .status-live {
-  background: #dcfce7;
-  color: #166534;
+  background: rgba(45, 212, 191, 0.14);
+  color: #7fe8d8;
+  border-color: rgba(45, 212, 191, 0.3);
 }
 
 /* Error banner */
 .error-banner {
-  background: var(--color-danger-bg);
-  color: var(--color-danger);
-  border: 1px solid #fecaca;
-  border-radius: 6px;
+  background: var(--danger-bg);
+  color: var(--danger);
+  border: 1px solid var(--danger-line);
+  border-radius: var(--radius-sm);
   padding: 0.6rem 0.85rem;
   font-size: 0.9rem;
+}
+
+/* Subscription status banners (documents/USER-APP-subscription-and-ui.md
+ * §5: "honest, not alarmist") — shared between AppShell's persistent strip
+ * and BillingPage's hero so the same warning reads consistently wherever
+ * it appears. `active` is deliberately quiet and renders no banner at all. */
+.status-banner {
+  border-radius: var(--radius-sm);
+  padding: 0.65rem 0.9rem;
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.status-banner strong {
+  font-family: var(--font-display);
+}
+
+.banner-warning {
+  background: var(--warning-bg);
+  color: var(--warning);
+  border: 1px solid var(--warning-line);
+}
+
+.banner-expired {
+  background: var(--danger-bg);
+  color: var(--danger);
+  border: 1px solid var(--danger-line);
 }
 
 /* Modal (QR code) */
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: rgba(0, 0, 0, 0.65);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -481,8 +595,9 @@ button:disabled {
 }
 
 .modal {
-  background: var(--color-surface);
-  border-radius: var(--radius);
+  background: var(--bg-elev);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
   padding: 1.25rem;
   max-width: 340px;
   width: 100%;
@@ -508,8 +623,13 @@ button:disabled {
   width: 100%;
   max-width: 256px;
   height: auto;
-  border: 1px solid var(--color-border);
-  border-radius: 6px;
+  /* QR codes need an opaque light background to stay scannable — kept
+   * white regardless of theme, matted so it doesn't collide with the
+   * dark modal behind it. */
+  background: #fff;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
 }
 
 .qr-code-url {

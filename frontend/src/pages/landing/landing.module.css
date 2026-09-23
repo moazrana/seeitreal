@@ -1,9 +1,11 @@
 /* SeeItReal marketing landing page.
  *
- * Scoped under .root so these tokens and rules never leak into the
- * authenticated dashboard's global (light-theme) styles in ../../index.css,
- * and vice versa. CSS Modules hashes every class name here except the
- * custom properties, which cascade normally to every descendant. */
+ * Scoped under .root so page-specific rules here never leak into the
+ * dashboard's global styles in ../../index.css, and vice versa — though
+ * both now share the same token values (documents/seeitreal-design-spec.md
+ * §2), so the app reads as one product across marketing site, auth, and
+ * dashboard. CSS Modules hashes every class name here except the custom
+ * properties, which cascade normally to every descendant. */
 
 .root {
   --bg: #0a0b14;

@@ -50,6 +50,21 @@ Uploads and 3D models (optional until you touch those features):
 - `AR_ENVIRONMENT_IMAGE_URL` — optional HDR environment-image URL for the diner AR viewer's
   lighting/reflections; defaults to `"neutral"` (model-viewer's built-in studio IBL) when unset.
 
+Payments (optional until you touch billing — see `documents/USER-APP-subscription-and-ui.md`):
+
+- `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` — USD/international clients. Test-mode key from
+  [dashboard.stripe.com/test/apikeys](https://dashboard.stripe.com/test/apikeys); webhook secret
+  from `stripe listen` (dev) or a dashboard webhook endpoint (prod). Server-side only.
+- `SAFEPAY_API_KEY`, `SAFEPAY_WEBHOOK_SECRET`, `SAFEPAY_BASE_URL` — PKR/Pakistani clients.
+  Sandbox credentials from your Safepay merchant dashboard; leave `SAFEPAY_BASE_URL` unset to use
+  the sandbox host.
+- `DEFAULT_CHECKOUT_COUNTRY` — 2-letter ISO country code, soft default for the checkout form only
+  (the billing country the owner confirms is what actually routes Stripe vs Safepay).
+- `SUBSCRIPTION_GRACE_PERIOD_DAYS` — days between a failed payment and the AR viewer actually
+  gating a restaurant's links (default `5`).
+- `FRONTEND_BASE_URL` — the dashboard's own origin, used to build Stripe/Safepay checkout
+  success/cancel redirect URLs (distinct from `API_BASE_URL`, the API's own origin).
+
 Root App (required — the API won't boot without these):
 
 - `ROOT_JWT_ACCESS_SECRET`, `ROOT_JWT_REFRESH_SECRET` — generate with `openssl rand -base64 64`.

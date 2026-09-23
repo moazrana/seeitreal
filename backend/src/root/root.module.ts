@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 import { RootAuditModule } from './audit/root-audit.module';
 import { RootAuthModule } from './auth/root-auth.module';
 import { RootDashboardModule } from './dashboard/root-dashboard.module';
+import { RootPackagesModule } from './packages/root-packages.module';
+import { RootPromoCodesModule } from './promo-codes/root-promo-codes.module';
 import { RootQaModule } from './qa/root-qa.module';
 import { RootRestaurantsModule } from './restaurants/root-restaurants.module';
 
@@ -19,6 +21,8 @@ import { RootRestaurantsModule } from './restaurants/root-restaurants.module';
     RootDashboardModule,
     RootRestaurantsModule,
     RootQaModule,
+    RootPackagesModule,
+    RootPromoCodesModule,
   ],
 })
 export class RootModule {}

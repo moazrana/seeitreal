@@ -7,7 +7,12 @@ import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  // rawBody: true — needed by StripeWebhookController/SafepayWebhookController
+  // to verify gateway signatures against the exact bytes received (Stripe's
+  // constructEvent/our own HMAC compare both require the raw, unparsed
+  // body; the already-JSON-parsed body can't be re-serialized byte-for-byte
+  // reliably). Nest still parses `req.body` as usual for every other route.
+  const app = await NestFactory.create(AppModule, { rawBody: true });
   const config = app.get(ConfigService);
 
   // Only when genuinely behind a trusted reverse proxy (nginx) — otherwise

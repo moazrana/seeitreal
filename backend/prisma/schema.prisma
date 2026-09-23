@@ -21,6 +21,12 @@ enum UserRole {
   admin
 }
 
+// Only one business type exists today; kept as an enum (not a hardcoded
+// string) so a second type can be added later without a shape change.
+enum BusinessType {
+  restaurant
+}
+
 enum ArStatus {
   pending
   generating
@@ -45,16 +51,49 @@ enum AnalyticsEventType {
   ar_launch
 }
 
-enum SubscriptionPlan {
-  starter
-  growth
-  pro
+enum SubscriptionInterval {
+  monthly
+  yearly
 }
 
 enum SubscriptionStatus {
   active
   past_due
+  // Grace period elapsed with no successful payment (documents/
+  // USER-APP-subscription-and-ui.md §4.3) — SubscriptionGraceCron is the
+  // only thing that sets this; gateways don't send an explicit "expired"
+  // event. This is the one status that gates the public AR viewer.
+  expired
   canceled
+}
+
+/// Which payment gateway a subscription is billed through (documents/
+/// USER-APP-subscription-and-ui.md §3) — routed by billing country at
+/// checkout (PK -> safepay, else stripe), stored so webhooks/renewal know
+/// which adapter owns a given Subscription row.
+enum PaymentGateway {
+  stripe
+  safepay
+}
+
+enum PromoDiscountType {
+  percent
+  fixed
+}
+
+enum PromoAppliesTo {
+  subscription
+  setup
+  deal
+}
+
+/// Currency for a fixed-amount promo discount (spec: rootApp/documents/
+/// ROOT-APP-subscriptions-and-promos.md §3). Null on the PromoCode row for
+/// percent discounts, required for fixed ones — matches SubscriptionPackage's
+/// pricePkr/priceUsd dual-currency split.
+enum PromoCurrency {
+  PKR
+  USD
 }
 
 enum ChargeType {
@@ -184,32 +223,37 @@ model PasswordResetToken {
 }
 
 model Restaurant {
-  id              Int               @id @default(autoincrement())
-  ownerUserId     Int               @map("owner_user_id")
-  name            String            @db.VarChar(200)
-  slug            String            @unique @db.VarChar(200)
-  logoUrl         String?           @map("logo_url") @db.VarChar(2048)
-  planId          SubscriptionPlan? @map("plan_id")
+  id              Int       @id @default(autoincrement())
+  ownerUserId     Int       @map("owner_user_id")
+  name            String    @db.VarChar(200)
+  slug            String    @unique @db.VarChar(200)
+  logoUrl         String?   @map("logo_url") @db.VarChar(2048)
+  businessType    BusinessType @default(restaurant) @map("business_type")
+  // Nullable: existing restaurants predate this column. Required going
+  // forward via CreateRestaurantDto/SignupDto, not a DB constraint, so we
+  // don't have to fabricate addresses for pre-existing rows.
+  address         String?   @db.VarChar(500)
   // Root App restaurant control (rootApp/ROOT-APP-Implementation-Spec.md
   // §3.2). Suspending blocks the owner's dashboard/API access AND takes
   // every public page for this restaurant offline — see
   // RestaurantsService.assertOwnership and ArViewerService.
-  suspended       Boolean           @default(false)
-  suspendedAt     DateTime?         @map("suspended_at")
-  suspendedReason String?           @map("suspended_reason") @db.VarChar(500)
-  createdAt       DateTime          @default(now()) @map("created_at")
-  updatedAt       DateTime          @updatedAt @map("updated_at")
+  suspended       Boolean   @default(false)
+  suspendedAt     DateTime? @map("suspended_at")
+  suspendedReason String?   @map("suspended_reason") @db.VarChar(500)
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
 
-  owner           User             @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
-  categories      MenuCategory[]
-  items           MenuItem[]
-  deals           Deal[]
-  qrCodes         QrCode[]
-  analyticsEvents AnalyticsEvent[]
-  subscriptions   Subscription[]
-  charges         Charge[]
-  supportTickets  SupportTicket[]
-  feedback        Feedback[]
+  owner            User              @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  categories       MenuCategory[]
+  items            MenuItem[]
+  deals            Deal[]
+  qrCodes          QrCode[]
+  analyticsEvents  AnalyticsEvent[]
+  subscriptions    Subscription[]
+  charges          Charge[]
+  supportTickets   SupportTicket[]
+  feedback         Feedback[]
+  promoRedemptions PromoRedemption[]
 
   @@index([ownerUserId])
   @@map("restaurants")
@@ -371,17 +415,30 @@ model AnalyticsEvent {
 model Subscription {
   id                    Int                @id @default(autoincrement())
   restaurantId          Int                @map("restaurant_id")
-  plan                  SubscriptionPlan
+  // Which SubscriptionPackage this restaurant is on (rootApp/documents/
+  // ROOT-APP-subscriptions-and-promos.md §4). Restrict, not Cascade: a
+  // package with live subscriptions must be soft-retired (see
+  // RootPackagesService), never hard-deleted out from under them.
+  packageId             Int                @map("package_id")
+  gateway               PaymentGateway
   status                SubscriptionStatus @default(active)
   currentPeriodEnd      DateTime           @map("current_period_end")
+  // Set when a webhook marks the subscription past_due (documents/
+  // USER-APP-subscription-and-ui.md §4.2: "grace period... value from
+  // config"); SubscriptionGraceCron flips status to expired once this
+  // passes. Null while active/expired/canceled.
+  graceUntil            DateTime?          @map("grace_until")
   gatewayCustomerId     String?            @map("gateway_customer_id") @db.VarChar(255)
   gatewaySubscriptionId String?            @map("gateway_subscription_id") @db.VarChar(255)
   createdAt             DateTime           @default(now()) @map("created_at")
   updatedAt             DateTime           @updatedAt @map("updated_at")
 
-  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  restaurant Restaurant          @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  package    SubscriptionPackage @relation(fields: [packageId], references: [id], onDelete: Restrict)
 
   @@index([restaurantId])
+  @@index([packageId])
+  @@index([gatewaySubscriptionId])
   @@map("subscriptions")
 }
 
@@ -398,10 +455,94 @@ model Charge {
   createdAt    DateTime     @default(now()) @map("created_at")
   updatedAt    DateTime     @updatedAt @map("updated_at")
 
-  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  restaurant       Restaurant        @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  promoRedemptions PromoRedemption[]
 
   @@index([restaurantId])
   @@map("charges")
+}
+
+// ---------------------------------------------------------------------------
+// Subscription packages & promo codes (rootApp/documents/
+// ROOT-APP-subscriptions-and-promos.md) — plan/discount definitions the
+// User App sells against. Managed exclusively from the Root App, behind
+// RootAdminRole.SUPERADMIN (§5: "Admin-only; superadmin required for
+// delete/retire and price changes" — kept superadmin-only end to end here
+// since the Implementation Spec scopes the "support" role to tickets/
+// feedback only, explicitly excluding billing).
+// ---------------------------------------------------------------------------
+
+model SubscriptionPackage {
+  id        Int                  @id @default(autoincrement())
+  name      String               @db.VarChar(100)
+  // Minor units (paisa / cents) — never store a float for money.
+  pricePkr  Int                  @map("price_pkr")
+  priceUsd  Int                  @map("price_usd")
+  interval  SubscriptionInterval
+  // Null = unlimited. Add further limit columns here as the product needs them.
+  maxItems  Int?                 @map("max_items")
+  // Soft-retire flag (§2): false hides the package from new signups while
+  // existing subscribers keep it. Hard delete is only permitted when no
+  // Subscription references the row at all — see RootPackagesService.
+  isActive  Boolean              @default(true) @map("is_active")
+  sortOrder Int                  @default(0) @map("sort_order")
+  createdAt DateTime             @default(now()) @map("created_at")
+  updatedAt DateTime             @updatedAt @map("updated_at")
+
+  subscriptions Subscription[]
+
+  @@map("subscription_packages")
+}
+
+model PromoCode {
+  id               Int               @id @default(autoincrement())
+  // Stored upper-cased (see CreatePromoCodeDto) so "SAVE10" and "save10"
+  // can never coexist as distinct codes.
+  code             String            @unique @db.VarChar(50)
+  discountType     PromoDiscountType @map("discount_type")
+  // percent: 1-100. fixed: minor currency units in `currency`.
+  amount           Int
+  // Required for fixed discounts, null for percent — enforced in the DTO,
+  // not the DB (Prisma/MySQL have no portable cross-column CHECK here).
+  currency         PromoCurrency?
+  appliesTo        PromoAppliesTo    @map("applies_to")
+  // Null = unlimited redemptions.
+  maxRedemptions   Int?              @map("max_redemptions")
+  timesRedeemed    Int               @default(0) @map("times_redeemed")
+  startsAt         DateTime?         @map("starts_at")
+  endsAt           DateTime?         @map("ends_at")
+  // The activate/deactivate toggle (§3) — flipping this to false must stop
+  // checkout validation immediately without deleting the row's history.
+  isActive         Boolean           @default(true) @map("is_active")
+  createdByAdminId Int               @map("created_by_admin_id")
+  createdAt        DateTime          @default(now()) @map("created_at")
+  updatedAt        DateTime          @updatedAt @map("updated_at")
+
+  createdBy   RootAdminUser     @relation(fields: [createdByAdminId], references: [id], onDelete: Restrict)
+  redemptions PromoRedemption[]
+
+  @@index([isActive])
+  @@map("promo_codes")
+}
+
+/// Records each time a promo code is redeemed, to enforce max_redemptions
+/// and show usage history (§3). Written by the User App's checkout flow —
+/// this schema exists now so that flow has somewhere to record redemptions
+/// against; the Root App itself only reads this table.
+model PromoRedemption {
+  id           Int      @id @default(autoincrement())
+  promoCodeId  Int      @map("promo_code_id")
+  restaurantId Int      @map("restaurant_id")
+  chargeId     Int?     @map("invoice_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  promoCode  PromoCode  @relation(fields: [promoCodeId], references: [id], onDelete: Cascade)
+  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  charge     Charge?    @relation(fields: [chargeId], references: [id], onDelete: SetNull)
+
+  @@index([promoCodeId])
+  @@index([restaurantId])
+  @@map("promo_redemptions")
 }
 
 model SupportTicket {
@@ -505,6 +646,7 @@ model RootAdminUser {
 
   refreshTokens RootRefreshToken[]
   auditLogs     RootAuditLog[]
+  promoCodes    PromoCode[]
 
   @@map("root_admin_users")
 }

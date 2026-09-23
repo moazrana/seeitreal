@@ -15,6 +15,7 @@ describe('RestaurantsService', () => {
   let prisma: {
     restaurant: {
       findUnique: jest.Mock;
+      findFirst: jest.Mock;
       findMany: jest.Mock;
       create: jest.Mock;
       update: jest.Mock;
@@ -40,6 +41,7 @@ describe('RestaurantsService', () => {
     prisma = {
       restaurant: {
         findUnique: jest.fn(),
+        findFirst: jest.fn(),
         findMany: jest.fn(),
         create: jest.fn(),
         update: jest.fn(),
@@ -60,13 +62,15 @@ describe('RestaurantsService', () => {
     service = moduleRef.get(RestaurantsService);
   });
 
-  it('creates a restaurant for the caller when the slug is free', async () => {
+  it('creates a restaurant for the caller when the slug is free and they own none yet', async () => {
     prisma.restaurant.findUnique.mockResolvedValueOnce(null);
+    prisma.restaurant.findFirst.mockResolvedValueOnce(null);
     prisma.restaurant.create.mockResolvedValueOnce(restaurant);
 
     const result = await service.create(owner, {
       name: 'Pizza Place',
       slug: 'pizza-place',
+      address: '123 Main St',
     });
 
     expect(result).toEqual(restaurant);
@@ -81,7 +85,25 @@ describe('RestaurantsService', () => {
     prisma.restaurant.findUnique.mockResolvedValueOnce(restaurant);
 
     await expect(
-      service.create(owner, { name: 'Dup', slug: 'pizza-place' }),
+      service.create(owner, {
+        name: 'Dup',
+        slug: 'pizza-place',
+        address: '123 Main St',
+      }),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(prisma.restaurant.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects creation when the caller already owns a restaurant (one per account)', async () => {
+    prisma.restaurant.findUnique.mockResolvedValueOnce(null);
+    prisma.restaurant.findFirst.mockResolvedValueOnce(restaurant);
+
+    await expect(
+      service.create(owner, {
+        name: 'Second Place',
+        slug: 'second-place',
+        address: '456 Side St',
+      }),
     ).rejects.toBeInstanceOf(ConflictException);
   });
 

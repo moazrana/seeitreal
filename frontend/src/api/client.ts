@@ -96,7 +96,12 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
   if (res.status === 204) {
     return undefined as T;
   }
-  return (await res.json()) as T;
+  // A controller returning `null` (e.g. "no subscription yet") makes Nest
+  // send a genuinely empty body (Content-Length: 0) on a 200, not 204 —
+  // res.json() throws "Unexpected end of JSON input" on that. Read as text
+  // first so any endpoint that can resolve to null/undefined stays safe.
+  const text = await res.text();
+  return (text ? JSON.parse(text) : null) as T;
 }
 
 export const api = {

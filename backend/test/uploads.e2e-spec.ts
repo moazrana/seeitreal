@@ -36,34 +36,40 @@ describe('Uploads (e2e)', () => {
     await app.close();
   });
 
-  async function signupAndLogin() {
+  // Signup creates the owner's one restaurant in the same request (one
+  // restaurant per account), so tests use that restaurantId directly
+  // rather than a separate POST /api/restaurants, which now 409s for an
+  // owner who already has one.
+  async function signupAndLogin(label: string) {
     const email = `${randomUUID()}@example.com`;
     const res = await request(app.getHttpServer())
       .post('/api/auth/signup')
-      .send({ email, password: 'CorrectHorse123' })
-      .expect(201);
-    return { email, accessToken: res.body.accessToken as string };
-  }
-
-  async function createRestaurantAndItem(accessToken: string, label: string) {
-    const restaurantRes = await request(app.getHttpServer())
-      .post('/api/restaurants')
-      .set('Authorization', `Bearer ${accessToken}`)
       .send({
-        name: `${label} Diner`,
-        slug: `${label.toLowerCase()}-${Date.now()}`,
+        email,
+        password: 'CorrectHorse123',
+        confirmPassword: 'CorrectHorse123',
+        businessName: `${label} Diner`,
+        address: `1 ${label} Street`,
       })
       .expect(201);
-    const restaurantId = restaurantRes.body.id as number;
+    return {
+      email,
+      accessToken: res.body.accessToken as string,
+      restaurantId: res.body.restaurant.id as number,
+    };
+  }
 
+  async function createItem(
+    accessToken: string,
+    restaurantId: number,
+    label: string,
+  ) {
     const itemRes = await request(app.getHttpServer())
       .post(`/api/restaurants/${restaurantId}/items`)
       .set('Authorization', `Bearer ${accessToken}`)
       .send({ name: `${label} Dish` })
       .expect(201);
-    const itemId = itemRes.body.id as number;
-
-    return { restaurantId, itemId };
+    return { itemId: itemRes.body.id as number };
   }
 
   async function makeJpeg(color: { r: number; g: number; b: number }) {
@@ -75,11 +81,8 @@ describe('Uploads (e2e)', () => {
   }
 
   it('uploads a real photo, validates it, stores it, and serves it back read-only', async () => {
-    const { accessToken } = await signupAndLogin();
-    const { restaurantId, itemId } = await createRestaurantAndItem(
-      accessToken,
-      'PhotoTest',
-    );
+    const { accessToken, restaurantId } = await signupAndLogin('PhotoTest');
+    const { itemId } = await createItem(accessToken, restaurantId, 'PhotoTest');
 
     const jpegBuffer = await makeJpeg({ r: 10, g: 200, b: 30 });
 
@@ -110,9 +113,11 @@ describe('Uploads (e2e)', () => {
   });
 
   it('uploads multiple photos in one request, keeping order, and lets one be removed', async () => {
-    const { accessToken } = await signupAndLogin();
-    const { restaurantId, itemId } = await createRestaurantAndItem(
+    const { accessToken, restaurantId } =
+      await signupAndLogin('MultiPhotoTest');
+    const { itemId } = await createItem(
       accessToken,
+      restaurantId,
       'MultiPhotoTest',
     );
 
@@ -149,9 +154,11 @@ describe('Uploads (e2e)', () => {
   });
 
   it('rejects a further upload once an item already has 5 photos', async () => {
-    const { accessToken } = await signupAndLogin();
-    const { restaurantId, itemId } = await createRestaurantAndItem(
+    const { accessToken, restaurantId } =
+      await signupAndLogin('TooManyPhotosTest');
+    const { itemId } = await createItem(
       accessToken,
+      restaurantId,
       'TooManyPhotosTest',
     );
 
@@ -179,10 +186,12 @@ describe('Uploads (e2e)', () => {
   });
 
   it("rejects a non-image upload, and never touches another owner's item", async () => {
-    const { accessToken } = await signupAndLogin();
-    const { accessToken: intruderToken } = await signupAndLogin();
-    const { restaurantId, itemId } = await createRestaurantAndItem(
+    const { accessToken, restaurantId } = await signupAndLogin('RejectTest');
+    const { accessToken: intruderToken } =
+      await signupAndLogin('RejectTestIntruder');
+    const { itemId } = await createItem(
       accessToken,
+      restaurantId,
       'RejectTest',
     );
 
@@ -206,9 +215,10 @@ describe('Uploads (e2e)', () => {
   });
 
   it('rejects a manual GLB upload that is not a genuine GLB, and requires widthMm first', async () => {
-    const { accessToken } = await signupAndLogin();
-    const { restaurantId, itemId } = await createRestaurantAndItem(
+    const { accessToken, restaurantId } = await signupAndLogin('ManualGlbTest');
+    const { itemId } = await createItem(
       accessToken,
+      restaurantId,
       'ManualGlbTest',
     );
 

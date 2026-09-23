@@ -159,3 +159,23 @@ export function renderNotFoundPage(): string {
 </html>
 `;
 }
+
+/**
+ * Rendered when a restaurant's subscription is `expired` (documents/
+ * USER-APP-subscription-and-ui.md §4.1, §5: "clean, not a broken/500
+ * error... honest, not alarmist"). Deliberately never mentions billing,
+ * payment status, or amounts to the diner — that's between the platform
+ * and the restaurant owner, not this page's audience.
+ */
+export function renderSubscriptionExpiredPage(restaurantName: string): string {
+  const restaurant = escapeHtml(restaurantName);
+  return `${PAGE_HEAD(`${restaurant} — menu unavailable`)}<body>
+<div class="card">
+  <div class="restaurant">${restaurant}</div>
+  <h1>This menu is temporarily unavailable</h1>
+  <p class="description">Please check back soon, or ask the restaurant for an updated menu.</p>
+</div>
+</body>
+</html>
+`;
+}

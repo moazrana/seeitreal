@@ -25,4 +25,9 @@ export class CreateRestaurantDto {
   @IsUrl()
   @MaxLength(2048)
   logoUrl?: string;
+
+  @IsString()
+  @MinLength(5)
+  @MaxLength(500)
+  address!: string;
 }

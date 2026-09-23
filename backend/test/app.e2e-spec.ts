@@ -44,20 +44,20 @@ describe('Signup -> restaurant -> menu item (e2e)', () => {
 
     const signupRes = await request(app.getHttpServer())
       .post('/api/auth/signup')
-      .send({ email, password })
+      .send({
+        email,
+        password,
+        confirmPassword: password,
+        businessName: 'E2E Test Diner',
+        address: '1 E2E Test Street',
+      })
       .expect(201);
 
     const accessToken = signupRes.body.accessToken as string;
     expect(accessToken).toEqual(expect.any(String));
     expect(signupRes.body.user.email).toBe(email);
 
-    const restaurantRes = await request(app.getHttpServer())
-      .post('/api/restaurants')
-      .set('Authorization', `Bearer ${accessToken}`)
-      .send({ name: 'E2E Test Diner', slug: `e2e-diner-${Date.now()}` })
-      .expect(201);
-
-    const restaurantId = restaurantRes.body.id as number;
+    const restaurantId = signupRes.body.restaurant.id as number;
 
     const itemRes = await request(app.getHttpServer())
       .post(`/api/restaurants/${restaurantId}/items`)
@@ -83,10 +83,16 @@ describe('Signup -> restaurant -> menu item (e2e)', () => {
     const ownerA = {
       email: `${randomUUID()}@example.com`,
       password: 'CorrectHorse123',
+      confirmPassword: 'CorrectHorse123',
+      businessName: 'Owner A Restaurant',
+      address: '1 Owner A Street',
     };
     const ownerB = {
       email: `${randomUUID()}@example.com`,
       password: 'CorrectHorse123',
+      confirmPassword: 'CorrectHorse123',
+      businessName: 'Owner B Restaurant',
+      address: '1 Owner B Street',
     };
 
     const aSignup = await request(app.getHttpServer())
@@ -98,14 +104,8 @@ describe('Signup -> restaurant -> menu item (e2e)', () => {
       .send(ownerB)
       .expect(201);
 
-    const restaurantRes = await request(app.getHttpServer())
-      .post('/api/restaurants')
-      .set('Authorization', `Bearer ${aSignup.body.accessToken}`)
-      .send({ name: 'Owner A Restaurant', slug: `owner-a-${Date.now()}` })
-      .expect(201);
-
     await request(app.getHttpServer())
-      .get(`/api/restaurants/${restaurantRes.body.id}`)
+      .get(`/api/restaurants/${aSignup.body.restaurant.id}`)
       .set('Authorization', `Bearer ${bSignup.body.accessToken}`)
       .expect(404);
   });

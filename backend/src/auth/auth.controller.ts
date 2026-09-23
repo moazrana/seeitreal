@@ -37,10 +37,10 @@ export class AuthController {
     @Body() dto: SignupDto,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const { user, accessToken, refreshToken } =
+    const { user, restaurant, accessToken, refreshToken } =
       await this.authService.signup(dto);
     this.setRefreshCookie(res, refreshToken);
-    return { user, accessToken };
+    return { user, restaurant, accessToken };
   }
 
   @Throttle(AUTH_THROTTLE)
