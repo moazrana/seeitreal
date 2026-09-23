@@ -1,0 +1,463 @@
+/* RestaurantDetailPage — scoped under a CSS module so these rules never
+ * leak into the shared dashboard classes in ../index.css (chip, item-card,
+ * inline-form, etc. stay available to RestaurantsPage and anything else
+ * that still uses them). Reuses the same design tokens defined on :root
+ * in ../index.css (colors, gradient, radii, fonts) so the page matches the
+ * landing/auth theme rather than reinventing it. */
+
+/* ---------- Hero ---------- */
+
+.hero {
+  position: relative;
+  overflow: clip;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--bg-elev);
+  padding: 1.75rem 1.75rem 1.5rem;
+  margin-bottom: 2.5rem;
+}
+
+.heroGlow {
+  position: absolute;
+  width: 320px;
+  height: 320px;
+  border-radius: 50%;
+  filter: blur(80px);
+  opacity: 0.28;
+  pointer-events: none;
+  top: -140px;
+  right: -80px;
+  background: var(--violet);
+}
+
+.heroLinks {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 1rem;
+}
+
+.backLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.backLink:hover {
+  color: var(--ink);
+}
+
+.bannerSpacing {
+  margin-top: 0.75rem;
+}
+
+.heroTop {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+  margin-top: 1rem;
+}
+
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.75rem;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  background: var(--bg-elev-2);
+  padding: 0.25rem 0.65rem;
+  border-radius: 999px;
+  margin-bottom: 0.75rem;
+}
+
+.eyebrowDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--grad);
+}
+
+.heroTitle {
+  margin: 0;
+  font-size: clamp(1.6rem, 3.4vw, 2.4rem);
+}
+
+.heroSlug {
+  margin: 0.35rem 0 0;
+  color: var(--faint);
+  font-size: 0.9rem;
+}
+
+.statRow {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.statCard {
+  min-width: 92px;
+  text-align: center;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 0.6rem 1rem;
+}
+
+.statValue {
+  display: block;
+  font-family: var(--font-display);
+  font-size: 1.4rem;
+  font-weight: 600;
+  background: var(--grad);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.statLabel {
+  display: block;
+  font-size: 0.72rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-top: 0.15rem;
+}
+
+/* ---------- Sections ---------- */
+
+.section {
+  margin-bottom: 2.5rem;
+}
+
+.sectionHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.9rem;
+}
+
+.sectionHead h2 {
+  margin: 0;
+}
+
+.sectionCount {
+  color: var(--muted);
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+/* ---------- Categories ---------- */
+
+.categoryRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.categoryChip {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  background: var(--bg-elev);
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  padding: 0.4rem 0.5rem 0.4rem 0.95rem;
+  font-size: 0.88rem;
+  transition: border-color 0.2s ease;
+}
+
+.categoryChip:hover {
+  border-color: var(--teal);
+}
+
+.categoryChipRemove {
+  background: none;
+  color: var(--muted);
+  border-radius: 50%;
+  width: 1.25rem;
+  height: 1.25rem;
+  padding: 0;
+  line-height: 1;
+  font-size: 0.95rem;
+  transform: none;
+}
+
+.categoryChipRemove:hover {
+  background: var(--danger-bg);
+  color: var(--danger);
+  transform: none;
+}
+
+.categoryAddForm {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: transparent;
+  border: 1px dashed var(--line-strong);
+  border-radius: 999px;
+  padding: 0.3rem 0.3rem 0.3rem 0.95rem;
+}
+
+.categoryAddForm input {
+  border: none;
+  background: none;
+  padding: 0.15rem 0;
+  width: 150px;
+  font-size: 0.88rem;
+}
+
+.categoryAddForm input:focus-visible {
+  box-shadow: none;
+}
+
+.categoryAddForm button {
+  padding: 0.4rem 0.9rem;
+  font-size: 0.82rem;
+}
+
+/* ---------- Empty state ---------- */
+
+.emptyCard {
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-lg);
+  padding: 2.5rem 1.5rem;
+  text-align: center;
+  color: var(--muted);
+}
+
+.emptyCard strong {
+  display: block;
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-size: 1.1rem;
+  margin-bottom: 0.35rem;
+}
+
+/* ---------- Dish grid ---------- */
+
+.grid {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 1.1rem;
+}
+
+.dishCard {
+  --accent: var(--faint);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-elev);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  transition:
+    transform 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.dishCard:hover {
+  transform: translateY(-3px);
+  border-color: var(--line-strong);
+  box-shadow: 0 12px 30px -12px rgba(0, 0, 0, 0.5);
+}
+
+.dishCard[data-status='live'] {
+  --accent: var(--teal);
+}
+
+.dishCard[data-status='qa'] {
+  --accent: var(--blue);
+}
+
+.dishCard[data-status='generating'] {
+  --accent: var(--violet);
+}
+
+.dishPhotoWrap {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  background: var(--bg-elev-2);
+  border-bottom: 2px solid var(--accent);
+}
+
+.dishPhotoWrap img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transition: transform 0.35s ease;
+}
+
+.dishCard:hover .dishPhotoWrap img {
+  transform: scale(1.04);
+}
+
+.dishPhotoPlaceholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--faint);
+  font-size: 0.8rem;
+}
+
+.dishStatusPin {
+  position: absolute;
+  top: 0.6rem;
+  right: 0.6rem;
+}
+
+.dishBody {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding: 1rem 1.1rem 1.1rem;
+}
+
+.dishName {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.dishDims {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.dishDimForm {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.dishDimForm input {
+  width: 84px;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.82rem;
+}
+
+.dishActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.3rem;
+  padding-top: 0.7rem;
+  border-top: 1px solid var(--line);
+}
+
+.actionBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--ink);
+  background: var(--bg-elev-2);
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  padding: 0.4rem 0.8rem;
+  cursor: pointer;
+  transition:
+    border-color 0.2s ease,
+    color 0.2s ease,
+    transform 0.2s ease;
+}
+
+.actionBtn:hover:not(:disabled) {
+  border-color: var(--teal);
+  transform: translateY(-1px);
+}
+
+.actionBtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.actionBtnPrimary {
+  border-color: transparent;
+  background: var(--grad);
+  color: #060712;
+  font-weight: 600;
+}
+
+.actionBtnPrimary:hover:not(:disabled) {
+  border-color: transparent;
+}
+
+.actionBtnDanger {
+  color: var(--danger);
+}
+
+.actionBtnDanger:hover:not(:disabled) {
+  border-color: var(--danger-line);
+}
+
+/* ---------- Add a dish ---------- */
+
+.addDishCard {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  background: var(--bg-elev);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  padding: 1.5rem;
+  margin-top: 1.5rem;
+}
+
+.addDishHead {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0 0 1.1rem;
+}
+
+.addDishHeadIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.9rem;
+  height: 1.9rem;
+  border-radius: 50%;
+  background: var(--grad);
+  color: #060712;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.addDishGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.9rem;
+}
+
+.addDishGrid label:first-child {
+  grid-column: 1 / -1;
+}
+
+.addDishNote {
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin: 0;
+}
+
+.addDishSubmit {
+  align-self: flex-start;
+}

@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import type { ChangeEvent, FormEvent } from 'react';
-import { useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
+import { billingApi } from '../api/billing';
 import { menuApi } from '../api/menu';
 import { restaurantsApi } from '../api/restaurants';
-import type { MenuCategory, MenuItem, Restaurant } from '../api/types';
+import type { MenuCategory, MenuItem, Restaurant, Subscription } from '../api/types';
 import { AppShell } from '../components/AppShell';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { PhotoCaptureGuide } from '../components/PhotoCaptureGuide';
@@ -11,6 +12,7 @@ import { QrCodeModal } from '../components/QrCodeModal';
 import { errorMessage } from '../lib/errors';
 import { itemArViewerUrl } from '../lib/publicUrls';
 import { StatusBadge } from '../components/StatusBadge';
+import s from './RestaurantDetailPage.module.css';
 
 // Up to 5 input photos per dish (documents/3d-model-enhancement.md §1) —
 // mirrors the server-side MAX_ITEM_PHOTOS. Client-side check here is UX
@@ -32,6 +34,7 @@ export function RestaurantDetailPage() {
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
   const [categories, setCategories] = useState<MenuCategory[]>([]);
   const [items, setItems] = useState<MenuItem[]>([]);
+  const [subscription, setSubscription] = useState<Subscription | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busyItemId, setBusyItemId] = useState<number | null>(null);
   const [qrItem, setQrItem] = useState<MenuItem | null>(null);
@@ -48,11 +51,13 @@ export function RestaurantDetailPage() {
       restaurantsApi.get(restaurantId),
       menuApi.listCategories(restaurantId),
       menuApi.listItems(restaurantId),
+      billingApi.getSubscription(restaurantId),
     ])
-      .then(([r, c, i]) => {
+      .then(([r, c, i, sub]) => {
         setRestaurant(r);
         setCategories(c);
         setItems(i);
+        setSubscription(sub);
       })
       .catch((err: unknown) => setError(errorMessage(err)));
   }
@@ -193,6 +198,8 @@ export function RestaurantDetailPage() {
     }
   }
 
+  const liveCount = items.filter((item) => item.arStatus === 'live').length;
+
   return (
     <AppShell>
       {qrItem && (
@@ -202,56 +209,117 @@ export function RestaurantDetailPage() {
           onClose={() => setQrItem(null)}
         />
       )}
-      <h1>{restaurant?.name ?? 'Restaurant'}</h1>
       <ErrorBanner message={error} />
 
-      <section>
-        <h2>Categories</h2>
-        <ul className="chip-list">
+      <div className={s.hero}>
+        <div className={s.heroGlow} aria-hidden="true" />
+        <div className={s.heroLinks}>
+          <Link to={`/restaurants/${restaurantId}/billing`} className={s.backLink}>
+            Billing →
+          </Link>
+        </div>
+        {subscription?.status === 'past_due' && subscription.graceUntil && (
+          <div className={`status-banner banner-warning ${s.bannerSpacing}`}>
+            <strong>Payment failed.</strong>{' '}
+            <Link to={`/restaurants/${restaurantId}/billing`}>Update your payment method</Link> to
+            keep your dish links online.
+          </div>
+        )}
+        {subscription?.status === 'expired' && (
+          <div className={`status-banner banner-expired ${s.bannerSpacing}`}>
+            <strong>Your menus are offline.</strong>{' '}
+            <Link to={`/restaurants/${restaurantId}/billing`}>Reactivate now</Link> to bring your
+            dish links back — nothing was deleted.
+          </div>
+        )}
+        <div className={s.heroTop}>
+          <div>
+            <span className={s.eyebrow}>
+              <span className={s.eyebrowDot} aria-hidden="true" />
+              Restaurant
+            </span>
+            <h1 className={s.heroTitle}>{restaurant?.name ?? 'Loading…'}</h1>
+            {restaurant && <p className={s.heroSlug}>/{restaurant.slug}</p>}
+          </div>
+          <div className={s.statRow}>
+            <div className={s.statCard}>
+              <span className={s.statValue}>{items.length}</span>
+              <span className={s.statLabel}>Dishes</span>
+            </div>
+            <div className={s.statCard}>
+              <span className={s.statValue}>{liveCount}</span>
+              <span className={s.statLabel}>Live in AR</span>
+            </div>
+            <div className={s.statCard}>
+              <span className={s.statValue}>{categories.length}</span>
+              <span className={s.statLabel}>Categories</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <section className={s.section}>
+        <div className={s.sectionHead}>
+          <h2>Categories</h2>
+        </div>
+        <div className={s.categoryRow}>
           {categories.map((c) => (
-            <li key={c.id} className="chip">
+            <span key={c.id} className={s.categoryChip}>
               {c.name}
-              <button type="button" className="chip-remove" onClick={() => void handleDeleteCategory(c.id)}>
+              <button
+                type="button"
+                className={s.categoryChipRemove}
+                onClick={() => void handleDeleteCategory(c.id)}
+                aria-label={`Delete category ${c.name}`}
+              >
                 ×
               </button>
-            </li>
+            </span>
           ))}
-        </ul>
-        <form className="inline-form-row" onSubmit={handleAddCategory}>
-          <input
-            placeholder="New category name"
-            value={categoryName}
-            onChange={(e) => setCategoryName(e.target.value)}
-            required
-          />
-          <button type="submit">Add category</button>
-        </form>
+          <form className={s.categoryAddForm} onSubmit={handleAddCategory}>
+            <input
+              placeholder="New category…"
+              value={categoryName}
+              onChange={(e) => setCategoryName(e.target.value)}
+              required
+            />
+            <button type="submit">+ Add</button>
+          </form>
+        </div>
       </section>
 
-      <section>
-        <h2>Menu items</h2>
+      <section className={s.section}>
+        <div className={s.sectionHead}>
+          <h2>Menu items</h2>
+          <span className={s.sectionCount}>
+            {items.length} dish{items.length === 1 ? '' : 'es'}
+          </span>
+        </div>
         <PhotoCaptureGuide />
         {items.length === 0 ? (
-          <p className="empty-state">No items yet — add your first dish below.</p>
+          <div className={s.emptyCard}>
+            <strong>No dishes yet</strong>
+            Add your first dish below to start generating AR models.
+          </div>
         ) : (
-          <ul className="item-list">
+          <ul className={s.grid}>
             {items.map((item) => (
-              <li key={item.id} className="item-card">
-                <div className="item-card-photo">
+              <li key={item.id} className={s.dishCard} data-status={item.arStatus}>
+                <div className={s.dishPhotoWrap}>
                   {item.photoUrl ? (
                     <img src={item.photoUrl} alt={item.name} />
                   ) : (
-                    <div className="item-card-photo-placeholder">No photo</div>
+                    <div className={s.dishPhotoPlaceholder}>No photo</div>
                   )}
-                </div>
-                <div className="item-card-body">
-                  <div className="item-card-title-row">
-                    <strong>{item.name}</strong>
+                  <span className={s.dishStatusPin}>
                     <StatusBadge status={item.arStatus} />
-                  </div>
-                  <div className="muted">{formatDimensions(item) ?? 'No dimensions set yet'}</div>
+                  </span>
+                </div>
+                <div className={s.dishBody}>
+                  <h3 className={s.dishName}>{item.name}</h3>
+                  <p className={s.dishDims}>{formatDimensions(item) ?? 'No dimensions set yet'}</p>
                   <form
-                    className="dimensions-form"
+                    className={s.dishDimForm}
                     onSubmit={(e) => void handleSaveDimensions(item.id, e)}
                   >
                     <input
@@ -304,9 +372,9 @@ export function RestaurantDetailPage() {
                       ))}
                     </ul>
                   )}
-                  <div className="item-card-actions">
+                  <div className={s.dishActions}>
                     <label
-                      className="link-button"
+                      className={s.actionBtn}
                       title={
                         item.photos.length >= MAX_ITEM_PHOTOS
                           ? `A dish can have at most ${MAX_ITEM_PHOTOS} photos`
@@ -325,7 +393,7 @@ export function RestaurantDetailPage() {
                     </label>
                     <button
                       type="button"
-                      className="link-button"
+                      className={`${s.actionBtn} ${s.actionBtnPrimary}`}
                       disabled={
                         !item.photoUrl || !item.widthMm || item.arStatus !== 'pending' || busyItemId === item.id
                       }
@@ -343,7 +411,7 @@ export function RestaurantDetailPage() {
                       Generate 3D model
                     </button>
                     <label
-                      className="link-button"
+                      className={s.actionBtn}
                       title={
                         !item.widthMm
                           ? 'Enter the dish width first'
@@ -362,19 +430,23 @@ export function RestaurantDetailPage() {
                     {item.arStatus === 'live' && (
                       <>
                         <a
-                          className="link-button"
+                          className={s.actionBtn}
                           href={itemArViewerUrl(item.publicSlug)}
                           target="_blank"
                           rel="noreferrer"
                         >
                           View in AR
                         </a>
-                        <button type="button" className="link-button" onClick={() => setQrItem(item)}>
+                        <button type="button" className={s.actionBtn} onClick={() => setQrItem(item)}>
                           Show QR code
                         </button>
                       </>
                     )}
-                    <button type="button" className="link-button danger" onClick={() => void handleDeleteItem(item.id)}>
+                    <button
+                      type="button"
+                      className={`${s.actionBtn} ${s.actionBtnDanger}`}
+                      onClick={() => void handleDeleteItem(item.id)}
+                    >
                       Delete
                     </button>
                   </div>
@@ -384,59 +456,68 @@ export function RestaurantDetailPage() {
           </ul>
         )}
 
-        <form className="inline-form" onSubmit={handleAddItem}>
-          <h3>Add a dish</h3>
-          <label>
-            Name
-            <input value={itemName} onChange={(e) => setItemName(e.target.value)} required />
-          </label>
-          <label>
-            Category
-            <select value={itemCategoryId} onChange={(e) => setItemCategoryId(e.target.value)}>
-              <option value="">None</option>
-              {categories.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Width (mm)
-            <input
-              type="number"
-              min="1"
-              max="5000"
-              value={itemWidthMm}
-              onChange={(e) => setItemWidthMm(e.target.value)}
-              placeholder="e.g. 260 for a 26cm plate"
-            />
-          </label>
-          <label>
-            Height (mm)
-            <input
-              type="number"
-              min="1"
-              max="5000"
-              value={itemHeightMm}
-              onChange={(e) => setItemHeightMm(e.target.value)}
-            />
-          </label>
-          <label>
-            Length (mm)
-            <input
-              type="number"
-              min="1"
-              max="5000"
-              value={itemLengthMm}
-              onChange={(e) => setItemLengthMm(e.target.value)}
-            />
-          </label>
-          <p className="muted">
+        <form className={s.addDishCard} onSubmit={handleAddItem}>
+          <h3 className={s.addDishHead}>
+            <span className={s.addDishHeadIcon} aria-hidden="true">
+              +
+            </span>
+            Add a dish
+          </h3>
+          <div className={s.addDishGrid}>
+            <label>
+              Name
+              <input value={itemName} onChange={(e) => setItemName(e.target.value)} required />
+            </label>
+            <label>
+              Category
+              <select value={itemCategoryId} onChange={(e) => setItemCategoryId(e.target.value)}>
+                <option value="">None</option>
+                {categories.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Width (mm)
+              <input
+                type="number"
+                min="1"
+                max="5000"
+                value={itemWidthMm}
+                onChange={(e) => setItemWidthMm(e.target.value)}
+                placeholder="e.g. 260 for a 26cm plate"
+              />
+            </label>
+            <label>
+              Height (mm)
+              <input
+                type="number"
+                min="1"
+                max="5000"
+                value={itemHeightMm}
+                onChange={(e) => setItemHeightMm(e.target.value)}
+              />
+            </label>
+            <label>
+              Length (mm)
+              <input
+                type="number"
+                min="1"
+                max="5000"
+                value={itemLengthMm}
+                onChange={(e) => setItemLengthMm(e.target.value)}
+              />
+            </label>
+          </div>
+          <p className={s.addDishNote}>
             Dimensions can be added later, but width is required before generating a 3D model —
             it's used to scale the model to true size in AR.
           </p>
-          <button type="submit">Add dish</button>
+          <button type="submit" className={s.addDishSubmit}>
+            Add dish
+          </button>
         </form>
       </section>
     </AppShell>

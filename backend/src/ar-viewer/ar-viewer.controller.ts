@@ -3,8 +3,12 @@ import { Controller, Get, NotFoundException, Param, Res } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { SkipThrottle, Throttle } from '@nestjs/throttler';
 import type { Response } from 'express';
-import { renderItemPage, renderNotFoundPage } from './ar-viewer.html';
-import { ArViewerService } from './ar-viewer.service';
+import {
+  renderItemPage,
+  renderNotFoundPage,
+  renderSubscriptionExpiredPage,
+} from './ar-viewer.html';
+import { ArViewerService, SubscriptionExpiredError } from './ar-viewer.service';
 
 const MODEL_VIEWER_SCRIPT_PATH: string =
   require.resolve('@google/model-viewer/dist/model-viewer.min.js');
@@ -62,6 +66,10 @@ export class ArViewerController {
         this.config.get<string>('AR_ENVIRONMENT_IMAGE_URL') || 'neutral';
       return renderItemPage(item, item.restaurant.name, environmentImageUrl);
     } catch (err) {
+      if (err instanceof SubscriptionExpiredError) {
+        res.status(200);
+        return renderSubscriptionExpiredPage(err.restaurantName);
+      }
       if (err instanceof NotFoundException) {
         res.status(404);
         return renderNotFoundPage();

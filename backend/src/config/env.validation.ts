@@ -5,6 +5,7 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  Matches,
   Max,
   Min,
   MinLength,
@@ -168,6 +169,55 @@ class EnvironmentVariables {
   @IsOptional()
   @IsString()
   USDZ_CONVERTER_SCRIPT?: string;
+
+  // --- Payments (documents/USER-APP-subscription-and-ui.md §3) — optional
+  // at boot, same tier as TRIPO_API_KEY above: PaymentsService/gateway
+  // adapters fail loudly at call time, not startup, so `npm run start`
+  // keeps working for anyone who hasn't configured billing yet.
+  @IsOptional()
+  @IsString()
+  STRIPE_SECRET_KEY?: string;
+
+  @IsOptional()
+  @IsString()
+  STRIPE_WEBHOOK_SECRET?: string;
+
+  @IsOptional()
+  @IsString()
+  SAFEPAY_API_KEY?: string;
+
+  @IsOptional()
+  @IsString()
+  SAFEPAY_WEBHOOK_SECRET?: string;
+
+  @IsOptional()
+  @IsString()
+  SAFEPAY_BASE_URL?: string;
+
+  // Soft default only for the checkout form's country field — the
+  // confirmed billing country the owner picks is what actually routes the
+  // gateway (spec: "IP is a guess; billing country is truth").
+  @IsOptional()
+  @IsString()
+  @Matches(/^[A-Za-z]{2}$/, {
+    message: 'DEFAULT_CHECKOUT_COUNTRY must be a 2-letter country code',
+  })
+  DEFAULT_CHECKOUT_COUNTRY?: string;
+
+  // Grace period between a failed payment (past_due) and the AR viewer
+  // actually gating (expired) — documents/USER-APP-subscription-and-ui.md
+  // §4.2: "3-7 days, configurable". Parsed/defaulted in
+  // SubscriptionLifecycleService, not here, so an unset or malformed value
+  // falls back safely rather than blocking boot.
+  @IsOptional()
+  @IsString()
+  SUBSCRIPTION_GRACE_PERIOD_DAYS?: string;
+
+  // Dashboard origin used to build Stripe/Safepay checkout success/cancel
+  // redirect URLs — distinct from API_BASE_URL (the API's own origin).
+  @IsOptional()
+  @IsString()
+  FRONTEND_BASE_URL?: string;
 
   // --- Root App (rootApp/ROOT-APP-Implementation-Spec.md §5) — a fully
   // separate secret/session set from the customer app's JWT_* above, so a

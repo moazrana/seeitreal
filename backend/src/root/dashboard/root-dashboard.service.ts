@@ -13,7 +13,7 @@ export class RootDashboardService {
       qaQueueSize,
       openTickets,
       unreviewedFeedback,
-      subscriptionsByPlanRaw,
+      subscriptionsByPackageRaw,
     ] = await Promise.all([
       this.prisma.restaurant.count(),
       this.prisma.restaurant.count({ where: { suspended: false } }),
@@ -25,11 +25,17 @@ export class RootDashboardService {
       this.prisma.supportTicket.count({ where: { status: 'open' } }),
       this.prisma.feedback.count({ where: { status: 'new' } }),
       this.prisma.subscription.groupBy({
-        by: ['plan'],
+        by: ['packageId'],
         where: { status: 'active' },
         _count: { _all: true },
       }),
     ]);
+
+    const packages = await this.prisma.subscriptionPackage.findMany({
+      where: { id: { in: subscriptionsByPackageRaw.map((r) => r.packageId) } },
+      select: { id: true, name: true },
+    });
+    const packageNameById = new Map(packages.map((p) => [p.id, p.name]));
 
     return {
       restaurants: {
@@ -43,12 +49,14 @@ export class RootDashboardService {
       qaQueueSize,
       support: { openTickets },
       feedback: { unreviewed: unreviewedFeedback },
-      subscriptionsByPlan: Object.fromEntries(
-        subscriptionsByPlanRaw.map((r) => [r.plan, r._count._all]),
+      subscriptionsByPackage: Object.fromEntries(
+        subscriptionsByPackageRaw.map((r) => [
+          packageNameById.get(r.packageId) ?? `#${r.packageId}`,
+          r._count._all,
+        ]),
       ),
-      // Plan pricing doesn't exist yet (rootApp spec's "Pricing management"
-      // is deferred) — never fabricate a revenue figure. The dashboard UI
-      // shows this as "not configured yet" rather than a dollar amount.
+      // Revenue reporting isn't built yet — never fabricate a figure. The
+      // dashboard UI shows this as "not configured yet" rather than a number.
       mrr: null,
     };
   }

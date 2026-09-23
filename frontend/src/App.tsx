@@ -2,6 +2,7 @@ import { lazy, Suspense } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { AuthProvider } from './context/AuthContext';
+import { BillingPage } from './pages/BillingPage';
 import { LoginPage } from './pages/LoginPage';
 import { RestaurantDetailPage } from './pages/RestaurantDetailPage';
 import { RestaurantsPage } from './pages/RestaurantsPage';
@@ -41,6 +42,14 @@ export default function App() {
           element={
             <ProtectedRoute>
               <RestaurantDetailPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/restaurants/:id/billing"
+          element={
+            <ProtectedRoute>
+              <BillingPage />
             </ProtectedRoute>
           }
         />

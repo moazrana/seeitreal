@@ -1,7 +1,8 @@
 /* Login / signup — styled to match the marketing landing page's dark,
- * premium look (documents/seeitreal-design-spec.md), scoped under .page so
- * these tokens and rules never touch the dashboard's global light-theme
- * index.css (which the rest of the app, e.g. RestaurantsPage, still uses). */
+ * premium look (documents/seeitreal-design-spec.md). The dashboard's
+ * global index.css now shares these same token values, but this stays
+ * scoped under .page (a CSS Module) so page-specific rules here (the
+ * viewfinder brackets, scan line, card layout) don't leak globally. */
 
 .page {
   --bg: #0a0b14;
@@ -266,18 +267,6 @@
 
 .switch a:hover {
   text-decoration: underline;
-}
-
-/* Override the shared, dashboard-wide .error-banner only inside this
- * card, so its light-theme colors (index.css) don't show up on our dark
- * background — the global class itself is untouched for the dashboard. */
-.card :global(.error-banner) {
-  background: var(--danger-bg);
-  color: var(--danger);
-  border: 1px solid var(--danger-line);
-  border-radius: 10px;
-  padding: 10px 14px;
-  font-size: 13.5px;
 }
 
 .footerNote {

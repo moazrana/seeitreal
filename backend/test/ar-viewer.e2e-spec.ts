@@ -40,19 +40,16 @@ describe('Diner AR viewer (e2e)', () => {
     const email = `${randomUUID()}@example.com`;
     const signupRes = await request(app.getHttpServer())
       .post('/api/auth/signup')
-      .send({ email, password: 'CorrectHorse123' })
-      .expect(201);
-    accessToken = signupRes.body.accessToken as string;
-
-    const restaurantRes = await request(app.getHttpServer())
-      .post('/api/restaurants')
-      .set('Authorization', `Bearer ${accessToken}`)
       .send({
-        name: 'AR Viewer Test Diner',
-        slug: `ar-viewer-test-${Date.now()}`,
+        email,
+        password: 'CorrectHorse123',
+        confirmPassword: 'CorrectHorse123',
+        businessName: 'AR Viewer Test Diner',
+        address: '1 AR Viewer Test Street',
       })
       .expect(201);
-    restaurantId = restaurantRes.body.id as number;
+    accessToken = signupRes.body.accessToken as string;
+    restaurantId = signupRes.body.restaurant.id as number;
   });
 
   afterAll(async () => {

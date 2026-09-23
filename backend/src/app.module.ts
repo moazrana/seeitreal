@@ -8,6 +8,7 @@ import { ArViewerModule } from './ar-viewer/ar-viewer.module';
 import { AuthModule } from './auth/auth.module';
 import { validateEnv } from './config/env.validation';
 import { MenuModule } from './menu/menu.module';
+import { PaymentsModule } from './payments/payments.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { RestaurantsModule } from './restaurants/restaurants.module';
 import { RootModule } from './root/root.module';
@@ -40,6 +41,7 @@ import { UploadsModule } from './uploads/uploads.module';
     RestaurantsModule,
     MenuModule,
     TripoModule,
+    PaymentsModule,
     ArViewerModule,
     // Root App (rootApp/ROOT-APP-Implementation-Spec.md) — replaces the old
     // AdminModule; its QA queue/approve/reject moved here under a fully

@@ -85,13 +85,26 @@ describe('Root App (e2e)', () => {
     };
   }
 
+  // Signup creates the owner's one restaurant in the same request (one
+  // restaurant per account) — callers use restaurantId from here rather
+  // than a separate POST /api/restaurants, which now 409s for an owner
+  // who already has one.
   async function signupAndLogin() {
     const email = `${randomUUID()}@example.com`;
     const res = await request(app.getHttpServer())
       .post('/api/auth/signup')
-      .send({ email, password: 'CorrectHorse123' })
+      .send({
+        email,
+        password: 'CorrectHorse123',
+        confirmPassword: 'CorrectHorse123',
+        businessName: `Signup Test Diner ${Date.now()}`,
+        address: '1 Signup Test Street',
+      })
       .expect(201);
-    return res.body.accessToken as string;
+    return {
+      accessToken: res.body.accessToken as string,
+      restaurantId: res.body.restaurant.id as number,
+    };
   }
 
   it('requires 2FA enrollment on first login, then a TOTP code on every login after', async () => {
@@ -130,13 +143,7 @@ describe('Root App (e2e)', () => {
     const rootEmail = await seedRootAdmin();
     const { accessToken: rootAccess } = await loginAndEnroll(rootEmail);
 
-    const ownerAccess = await signupAndLogin();
-    const restaurantRes = await request(app.getHttpServer())
-      .post('/api/restaurants')
-      .set('Authorization', `Bearer ${ownerAccess}`)
-      .send({ name: 'Root Test Diner', slug: `root-test-${Date.now()}` })
-      .expect(201);
-    const restaurantId = restaurantRes.body.id as number;
+    const { accessToken: ownerAccess, restaurantId } = await signupAndLogin();
 
     const itemRes = await request(app.getHttpServer())
       .post(`/api/restaurants/${restaurantId}/items`)
@@ -189,15 +196,10 @@ describe('Root App (e2e)', () => {
       .set('Authorization', `Bearer ${accessToken}`)
       .expect(200);
 
-    const restaurantAccess = await signupAndLogin();
-    const restaurantRes = await request(app.getHttpServer())
-      .post('/api/restaurants')
-      .set('Authorization', `Bearer ${restaurantAccess}`)
-      .send({ name: 'Support RBAC Diner', slug: `support-rbac-${Date.now()}` })
-      .expect(201);
+    const { restaurantId: rbacRestaurantId } = await signupAndLogin();
 
     await request(app.getHttpServer())
-      .post(`/api/root/restaurants/${restaurantRes.body.id}/suspend`)
+      .post(`/api/root/restaurants/${rbacRestaurantId}/suspend`)
       .set('Authorization', `Bearer ${accessToken}`)
       .send({ reason: 'should be forbidden' })
       .expect(403);
@@ -206,14 +208,7 @@ describe('Root App (e2e)', () => {
   it('moves model QA here: approve requires both model files, and reject sends the item back to the owner', async () => {
     const rootEmail = await seedRootAdmin();
     const { accessToken: rootAccess } = await loginAndEnroll(rootEmail);
-    const ownerAccess = await signupAndLogin();
-
-    const restaurantRes = await request(app.getHttpServer())
-      .post('/api/restaurants')
-      .set('Authorization', `Bearer ${ownerAccess}`)
-      .send({ name: 'Root QA Diner', slug: `root-qa-${Date.now()}` })
-      .expect(201);
-    const restaurantId = restaurantRes.body.id as number;
+    const { accessToken: ownerAccess, restaurantId } = await signupAndLogin();
 
     const itemRes = await request(app.getHttpServer())
       .post(`/api/restaurants/${restaurantId}/items`)

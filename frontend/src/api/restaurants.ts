@@ -4,6 +4,7 @@ import type { Restaurant } from './types';
 export interface CreateRestaurantInput {
   name: string;
   slug: string;
+  address: string;
 }
 
 export const restaurantsApi = {

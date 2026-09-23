@@ -12,16 +12,33 @@ export function SignupPage() {
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [businessName, setBusinessName] = useState('');
+  const [address, setAddress] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
+
+    // UX-only check — the server re-validates this (spec §7.2: never trust
+    // client-side validation).
+    if (password !== confirmPassword) {
+      setError('Passwords do not match.');
+      return;
+    }
+
     setSubmitting(true);
     try {
-      await signup(email, password);
-      navigate('/restaurants');
+      const restaurant = await signup({
+        email,
+        password,
+        confirmPassword,
+        businessName,
+        address,
+      });
+      navigate(`/restaurants/${restaurant.id}`);
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -64,6 +81,47 @@ export function SignupPage() {
             autoComplete="new-password"
           />
           <span className={styles.hint}>At least 10 characters, with a letter and a number.</span>
+        </label>
+        <label className={styles.field}>
+          Confirm password
+          <input
+            className={styles.input}
+            type="password"
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)}
+            required
+            minLength={10}
+            autoComplete="new-password"
+          />
+        </label>
+        <label className={styles.field}>
+          Business name
+          <input
+            className={styles.input}
+            type="text"
+            value={businessName}
+            onChange={(e) => setBusinessName(e.target.value)}
+            required
+            minLength={2}
+            autoComplete="organization"
+          />
+        </label>
+        <label className={styles.field}>
+          Business type
+          <input className={styles.input} type="text" value="Restaurant" disabled readOnly />
+          <span className={styles.hint}>Only restaurants are supported right now.</span>
+        </label>
+        <label className={styles.field}>
+          Address
+          <input
+            className={styles.input}
+            type="text"
+            value={address}
+            onChange={(e) => setAddress(e.target.value)}
+            required
+            minLength={5}
+            autoComplete="street-address"
+          />
         </label>
         <button className={styles.submit} type="submit" disabled={submitting}>
           {submitting ? 'Creating account…' : 'Sign up'}
