@@ -13,14 +13,14 @@ export const billingApi = {
   validatePromo: (code: string, appliesTo: 'subscription' | 'setup' | 'deal') =>
     api.post<PromoPreview>('/billing/promo/validate', { code, appliesTo }),
 
-  getSubscription: (restaurantId: number) =>
-    api.get<Subscription | null>(`/billing/restaurants/${restaurantId}/subscription`),
-  listInvoices: (restaurantId: number) =>
-    api.get<Invoice[]>(`/billing/restaurants/${restaurantId}/invoices`),
-  checkout: (restaurantId: number, input: CheckoutInput) =>
-    api.post<{ checkoutUrl: string }>(`/billing/restaurants/${restaurantId}/checkout`, input),
-  changePackage: (restaurantId: number, packageId: number) =>
-    api.patch<Subscription>(`/billing/restaurants/${restaurantId}/subscription`, { packageId }),
-  cancel: (restaurantId: number) =>
-    api.post<Subscription>(`/billing/restaurants/${restaurantId}/cancel`),
+  getSubscription: (restaurantSlug: string) =>
+    api.get<Subscription | null>(`/billing/restaurants/${restaurantSlug}/subscription`),
+  listInvoices: (restaurantSlug: string) =>
+    api.get<Invoice[]>(`/billing/restaurants/${restaurantSlug}/invoices`),
+  checkout: (restaurantSlug: string, input: CheckoutInput) =>
+    api.post<{ checkoutUrl: string }>(`/billing/restaurants/${restaurantSlug}/checkout`, input),
+  changePackage: (restaurantSlug: string, packageId: number) =>
+    api.patch<Subscription>(`/billing/restaurants/${restaurantSlug}/subscription`, { packageId }),
+  cancel: (restaurantSlug: string) =>
+    api.post<Subscription>(`/billing/restaurants/${restaurantSlug}/cancel`),
 };

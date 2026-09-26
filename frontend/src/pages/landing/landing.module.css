@@ -1,25 +1,12 @@
 /* SeeItReal marketing landing page.
  *
  * Scoped under .root so page-specific rules here never leak into the
- * dashboard's global styles in ../../index.css, and vice versa — though
- * both now share the same token values (documents/seeitreal-design-spec.md
- * §2), so the app reads as one product across marketing site, auth, and
- * dashboard. CSS Modules hashes every class name here except the custom
- * properties, which cascade normally to every descendant. */
+ * dashboard's global styles in ../../index.css, and vice versa. Colours come
+ * from the shared light/dark role tokens (@ar-menu/shared theme.css;
+ * documents/USER-APP-theming.md §2), so the app reads as one product across
+ * marketing site, auth, and dashboard in both themes. */
 
 .root {
-  --bg: #0a0b14;
-  --bg-elev: #12141f;
-  --bg-elev-2: #171a27;
-  --ink: #f4f5fb;
-  --muted: #9ba0b4;
-  --faint: #6a6f84;
-  --line: rgba(255, 255, 255, 0.08);
-  --line-strong: rgba(255, 255, 255, 0.16);
-  --blue: #4d7cff;
-  --violet: #8b5cf6;
-  --teal: #2dd4bf;
-  --grad: linear-gradient(105deg, #4d7cff, #8b5cf6 50%, #2dd4bf);
 
   --font-display:
     'Space Grotesk', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
@@ -27,7 +14,7 @@
 
   min-height: 100vh;
   background: var(--bg);
-  color: var(--ink);
+  color: var(--text);
   font-family: var(--font-body);
   font-size: 16px;
   line-height: 1.5;
@@ -44,7 +31,7 @@
 }
 
 .root :global(:focus-visible) {
-  outline: 2px solid var(--teal);
+  outline: 2px solid var(--accent-strong);
   outline-offset: 3px;
   border-radius: 4px;
 }
@@ -82,15 +69,15 @@
   align-items: center;
   gap: 8px;
   font-size: 13px;
-  color: var(--muted);
-  border: 1px solid var(--line);
-  background: var(--bg-elev);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  background: var(--surface);
   padding: 6px 14px;
   border-radius: 999px;
 }
 
 .gradText {
-  background: var(--grad);
+  background: var(--grad-text);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -107,7 +94,7 @@
 
 .sectionIntro {
   max-width: 42ch;
-  color: var(--muted);
+  color: var(--text-muted);
   font-size: 16px;
   margin: 0 0 56px;
 }
@@ -137,18 +124,18 @@
 
 .btnPrimary {
   background: var(--grad);
-  color: #060712;
+  color: var(--on-grad);
   font-weight: 600;
 }
 
 .btnGhost {
   background: transparent;
-  border-color: var(--line-strong);
-  color: var(--ink);
+  border-color: var(--border-strong);
+  color: var(--text);
 }
 
 .btnGhost:hover {
-  border-color: var(--teal);
+  border-color: var(--accent-strong);
 }
 
 /* ---------- Nav ---------- */
@@ -169,8 +156,8 @@
 }
 
 .navScrolled {
-  background: rgba(10, 11, 20, 0.86);
-  border-bottom-color: var(--line);
+  background: var(--header-bg);
+  border-bottom-color: var(--border);
 }
 
 .navInner {
@@ -188,7 +175,7 @@
   font-size: 19px;
   font-weight: 600;
   text-decoration: none;
-  color: var(--ink);
+  color: var(--text);
 }
 
 .wordmarkGlyph {
@@ -205,13 +192,13 @@
 
 .navLink {
   font-size: 14.5px;
-  color: var(--muted);
+  color: var(--text-muted);
   text-decoration: none;
   transition: color 0.2s ease;
 }
 
 .navLink:hover {
-  color: var(--ink);
+  color: var(--text);
 }
 
 .navCta {
@@ -223,11 +210,11 @@
 .navToggle {
   display: none;
   background: none;
-  border: 1px solid var(--line-strong);
+  border: 1px solid var(--border-strong);
   border-radius: 8px;
   width: 38px;
   height: 38px;
-  color: var(--ink);
+  color: var(--text);
   cursor: pointer;
   align-items: center;
   justify-content: center;
@@ -244,8 +231,8 @@
     flex-direction: column;
     align-items: stretch;
     gap: 2px;
-    background: var(--bg-elev);
-    border: 1px solid var(--line);
+    background: var(--surface);
+    border: 1px solid var(--border);
     border-radius: 16px;
     padding: 8px;
     transform: translateY(-12px);
@@ -268,7 +255,7 @@
   }
 
   .navLink:hover {
-    background: rgba(255, 255, 255, 0.04);
+    background: var(--surface-hover);
   }
 
   .navCta .navLink {
@@ -316,7 +303,7 @@
 .heroSub {
   max-width: 46ch;
   margin: 0 auto 40px;
-  color: var(--muted);
+  color: var(--text-muted);
   font-size: clamp(15px, 2vw, 17.5px);
 }
 
@@ -337,14 +324,14 @@
   flex-direction: column;
   align-items: center;
   gap: 8px;
-  color: var(--faint);
+  color: var(--text-faint);
   font-size: 12.5px;
 }
 
 .heroScrollLine {
   width: 1px;
   height: 34px;
-  background: linear-gradient(var(--line-strong), transparent);
+  background: linear-gradient(var(--border-strong), transparent);
   animation: scrollHint 2s ease-in-out infinite;
 }
 
@@ -406,7 +393,7 @@
   position: absolute;
   width: 34px;
   height: 34px;
-  border-color: var(--teal);
+  border-color: var(--accent-strong);
   opacity: 0.7;
 }
 
@@ -448,7 +435,7 @@
   right: 6%;
   height: 2px;
   background: linear-gradient(90deg, transparent, var(--teal), transparent);
-  box-shadow: 0 0 12px rgba(45, 212, 191, 0.7);
+  box-shadow: 0 0 12px rgb(var(--teal-rgb) / calc(var(--glow-strength) * 3.2));
   animation: scanSweep 3.6s ease-in-out infinite;
 }
 
@@ -506,7 +493,7 @@
 
 .step {
   padding-top: 20px;
-  border-top: 1px solid var(--line);
+  border-top: 1px solid var(--border);
 }
 
 .stepFirst {
@@ -517,7 +504,7 @@
 .stepNumber {
   font-family: var(--font-display);
   font-size: 13px;
-  color: var(--faint);
+  color: var(--text-faint);
   margin-bottom: 14px;
 }
 
@@ -530,7 +517,7 @@
 }
 
 .stepBody {
-  color: var(--muted);
+  color: var(--text-muted);
   font-size: 15px;
   max-width: 32ch;
   margin: 0;
@@ -548,8 +535,8 @@
 .bentoCard {
   position: relative;
   overflow: hidden;
-  border: 1px solid var(--line);
-  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  background: var(--surface);
   border-radius: 18px;
   padding: 32px;
 }
@@ -645,7 +632,7 @@
 }
 
 .bentoBody {
-  color: var(--muted);
+  color: var(--text-muted);
   font-size: 15px;
   max-width: 42ch;
   margin: 0;
@@ -656,7 +643,7 @@
   font-family: var(--font-display);
   font-size: clamp(20px, 2.6vw, 27px);
   font-weight: 500;
-  color: var(--ink);
+  color: var(--text);
   letter-spacing: -0.01em;
   max-width: 22ch;
 }
@@ -667,9 +654,9 @@
   width: 100%;
   aspect-ratio: 1;
   margin-bottom: 24px;
-  border: 1px solid var(--line-strong);
+  border: 1px solid var(--border-strong);
   border-radius: 14px;
-  background: radial-gradient(circle at 30% 20%, rgba(139, 92, 246, 0.25), transparent 60%);
+  background: radial-gradient(circle at 30% 20%, rgb(var(--violet-rgb) / calc(var(--glow-strength) * 1.15)), transparent 60%);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -684,9 +671,9 @@
 /* ---------- Beyond menus ---------- */
 
 .beyondPanel {
-  border: 1px solid var(--line);
+  border: 1px solid var(--border);
   border-radius: 24px;
-  background: var(--bg-elev);
+  background: var(--surface);
   padding: 56px;
   text-align: center;
 }
@@ -696,7 +683,7 @@
 }
 
 .beyondSub {
-  color: var(--muted);
+  color: var(--text-muted);
   max-width: 40ch;
   margin: 0 auto 32px;
 }
@@ -712,19 +699,19 @@
   padding: 9px 18px;
   border-radius: 999px;
   font-size: 14px;
-  border: 1px solid var(--line-strong);
-  color: var(--ink);
+  border: 1px solid var(--border-strong);
+  color: var(--text);
 }
 
 .chipLive {
   border-color: transparent;
   background: var(--grad);
-  color: #060712;
+  color: var(--on-grad);
   font-weight: 600;
 }
 
 .chipSoon {
-  color: var(--faint);
+  color: var(--text-faint);
   border-style: dashed;
 }
 
@@ -738,9 +725,9 @@
   position: relative;
   overflow: hidden;
   text-align: center;
-  border: 1px solid var(--line);
+  border: 1px solid var(--border);
   border-radius: 28px;
-  background: var(--bg-elev-2);
+  background: var(--surface-2);
   padding: 72px 32px;
 }
 
@@ -751,7 +738,7 @@
   width: 640px;
   height: 320px;
   transform: translateX(-50%);
-  background: radial-gradient(closest-side, rgba(139, 92, 246, 0.35), transparent 72%);
+  background: radial-gradient(closest-side, rgb(var(--violet-rgb) / calc(var(--glow-strength) * 1.6)), transparent 72%);
   pointer-events: none;
 }
 
@@ -768,7 +755,7 @@
 /* ---------- Footer ---------- */
 
 .footer {
-  border-top: 1px solid var(--line);
+  border-top: 1px solid var(--border);
   padding: 48px 0;
 }
 
@@ -778,7 +765,7 @@
   align-items: center;
   gap: 10px;
   text-align: center;
-  color: var(--faint);
+  color: var(--text-faint);
   font-size: 13.5px;
 }
 
@@ -786,5 +773,5 @@
   font-family: var(--font-display);
   font-size: 16px;
   font-weight: 600;
-  color: var(--ink);
+  color: var(--text);
 }

@@ -9,7 +9,8 @@ export interface CreateRestaurantInput {
 
 export const restaurantsApi = {
   list: () => api.get<Restaurant[]>('/restaurants'),
-  get: (id: number) => api.get<Restaurant>(`/restaurants/${id}`),
+  get: (slug: string) => api.get<Restaurant>(`/restaurants/${slug}`),
   create: (input: CreateRestaurantInput) => api.post<Restaurant>('/restaurants', input),
-  uploadLogo: (id: number, file: File) => api.upload<Restaurant>(`/restaurants/${id}/logo`, file),
+  uploadLogo: (slug: string, file: File) =>
+    api.upload<Restaurant>(`/restaurants/${slug}/logo`, file),
 };

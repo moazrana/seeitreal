@@ -24,12 +24,13 @@ const MAX_ITEM_PHOTOS = 5;
 function formatDimensions(item: MenuItem): string | null {
   const parts = [item.widthMm, item.heightMm, item.lengthMm];
   if (parts.every((v) => v === null)) return null;
-  return parts.map((v) => (v === null ? '?' : `${(v / 10).toFixed(1)}`)).join(' × ') + ' cm (W×H×L)';
+  return (
+    parts.map((v) => (v === null ? '?' : `${(v / 10).toFixed(1)}`)).join(' × ') + ' cm (W×H×L)'
+  );
 }
 
 export function RestaurantDetailPage() {
-  const { id } = useParams<{ id: string }>();
-  const restaurantId = Number(id);
+  const { slug: restaurantSlug = '' } = useParams<{ slug: string }>();
 
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
   const [categories, setCategories] = useState<MenuCategory[]>([]);
@@ -48,10 +49,10 @@ export function RestaurantDetailPage() {
 
   function loadAll() {
     Promise.all([
-      restaurantsApi.get(restaurantId),
-      menuApi.listCategories(restaurantId),
-      menuApi.listItems(restaurantId),
-      billingApi.getSubscription(restaurantId),
+      restaurantsApi.get(restaurantSlug),
+      menuApi.listCategories(restaurantSlug),
+      menuApi.listItems(restaurantSlug),
+      billingApi.getSubscription(restaurantSlug),
     ])
       .then(([r, c, i, sub]) => {
         setRestaurant(r);
@@ -62,13 +63,13 @@ export function RestaurantDetailPage() {
       .catch((err: unknown) => setError(errorMessage(err)));
   }
 
-  useEffect(loadAll, [restaurantId]);
+  useEffect(loadAll, [restaurantSlug]);
 
   async function handleAddCategory(e: FormEvent) {
     e.preventDefault();
     setError(null);
     try {
-      await menuApi.createCategory(restaurantId, { name: categoryName });
+      await menuApi.createCategory(restaurantSlug, { name: categoryName });
       setCategoryName('');
       loadAll();
     } catch (err) {
@@ -79,7 +80,7 @@ export function RestaurantDetailPage() {
   async function handleDeleteCategory(categoryId: number) {
     setError(null);
     try {
-      await menuApi.deleteCategory(restaurantId, categoryId);
+      await menuApi.deleteCategory(restaurantSlug, categoryId);
       loadAll();
     } catch (err) {
       setError(errorMessage(err));
@@ -90,7 +91,7 @@ export function RestaurantDetailPage() {
     e.preventDefault();
     setError(null);
     try {
-      await menuApi.createItem(restaurantId, {
+      await menuApi.createItem(restaurantSlug, {
         name: itemName,
         categoryId: itemCategoryId ? Number(itemCategoryId) : undefined,
         widthMm: itemWidthMm ? Number(itemWidthMm) : undefined,
@@ -108,24 +109,24 @@ export function RestaurantDetailPage() {
     }
   }
 
-  async function handleDeleteItem(itemId: number) {
+  async function handleDeleteItem(item: MenuItem) {
     setError(null);
     try {
-      await menuApi.deleteItem(restaurantId, itemId);
+      await menuApi.deleteItem(restaurantSlug, item.publicSlug);
       loadAll();
     } catch (err) {
       setError(errorMessage(err));
     }
   }
 
-  async function handlePhotosChange(itemId: number, e: ChangeEvent<HTMLInputElement>) {
+  async function handlePhotosChange(item: MenuItem, e: ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? []);
     e.target.value = ''; // allow re-selecting the same file(s) later
     if (files.length === 0) return;
     setError(null);
-    setBusyItemId(itemId);
+    setBusyItemId(item.id);
     try {
-      await menuApi.uploadPhotos(restaurantId, itemId, files);
+      await menuApi.uploadPhotos(restaurantSlug, item.publicSlug, files);
       loadAll();
     } catch (err) {
       setError(errorMessage(err));
@@ -134,11 +135,11 @@ export function RestaurantDetailPage() {
     }
   }
 
-  async function handleRemovePhoto(itemId: number, photoId: number) {
+  async function handleRemovePhoto(item: MenuItem, photoId: number) {
     setError(null);
-    setBusyItemId(itemId);
+    setBusyItemId(item.id);
     try {
-      await menuApi.deletePhoto(restaurantId, itemId, photoId);
+      await menuApi.deletePhoto(restaurantSlug, item.publicSlug, photoId);
       loadAll();
     } catch (err) {
       setError(errorMessage(err));
@@ -147,14 +148,14 @@ export function RestaurantDetailPage() {
     }
   }
 
-  async function handleModelChange(itemId: number, e: ChangeEvent<HTMLInputElement>) {
+  async function handleModelChange(item: MenuItem, e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
     setError(null);
-    setBusyItemId(itemId);
+    setBusyItemId(item.id);
     try {
-      await menuApi.uploadModel(restaurantId, itemId, file);
+      await menuApi.uploadModel(restaurantSlug, item.publicSlug, file);
       loadAll();
     } catch (err) {
       setError(errorMessage(err));
@@ -163,16 +164,16 @@ export function RestaurantDetailPage() {
     }
   }
 
-  async function handleSaveDimensions(itemId: number, e: FormEvent<HTMLFormElement>) {
+  async function handleSaveDimensions(item: MenuItem, e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
     const form = new FormData(e.currentTarget);
     const width = form.get('widthMm') as string;
     const height = form.get('heightMm') as string;
     const length = form.get('lengthMm') as string;
-    setBusyItemId(itemId);
+    setBusyItemId(item.id);
     try {
-      await menuApi.updateItem(restaurantId, itemId, {
+      await menuApi.updateItem(restaurantSlug, item.publicSlug, {
         widthMm: width ? Number(width) : undefined,
         heightMm: height ? Number(height) : undefined,
         lengthMm: length ? Number(length) : undefined,
@@ -185,11 +186,11 @@ export function RestaurantDetailPage() {
     }
   }
 
-  async function handleGenerateModel(itemId: number) {
+  async function handleGenerateModel(item: MenuItem) {
     setError(null);
-    setBusyItemId(itemId);
+    setBusyItemId(item.id);
     try {
-      await menuApi.generateModel(restaurantId, itemId);
+      await menuApi.generateModel(restaurantSlug, item.publicSlug);
       loadAll();
     } catch (err) {
       setError(errorMessage(err));
@@ -214,21 +215,21 @@ export function RestaurantDetailPage() {
       <div className={s.hero}>
         <div className={s.heroGlow} aria-hidden="true" />
         <div className={s.heroLinks}>
-          <Link to={`/restaurants/${restaurantId}/billing`} className={s.backLink}>
+          <Link to={`/restaurants/${restaurantSlug}/billing`} className={s.backLink}>
             Billing →
           </Link>
         </div>
         {subscription?.status === 'past_due' && subscription.graceUntil && (
           <div className={`status-banner banner-warning ${s.bannerSpacing}`}>
             <strong>Payment failed.</strong>{' '}
-            <Link to={`/restaurants/${restaurantId}/billing`}>Update your payment method</Link> to
+            <Link to={`/restaurants/${restaurantSlug}/billing`}>Update your payment method</Link> to
             keep your dish links online.
           </div>
         )}
         {subscription?.status === 'expired' && (
           <div className={`status-banner banner-expired ${s.bannerSpacing}`}>
             <strong>Your menus are offline.</strong>{' '}
-            <Link to={`/restaurants/${restaurantId}/billing`}>Reactivate now</Link> to bring your
+            <Link to={`/restaurants/${restaurantSlug}/billing`}>Reactivate now</Link> to bring your
             dish links back — nothing was deleted.
           </div>
         )}
@@ -320,7 +321,7 @@ export function RestaurantDetailPage() {
                   <p className={s.dishDims}>{formatDimensions(item) ?? 'No dimensions set yet'}</p>
                   <form
                     className={s.dishDimForm}
-                    onSubmit={(e) => void handleSaveDimensions(item.id, e)}
+                    onSubmit={(e) => void handleSaveDimensions(item, e)}
                   >
                     <input
                       name="widthMm"
@@ -364,7 +365,7 @@ export function RestaurantDetailPage() {
                             className="photo-thumb-remove"
                             disabled={busyItemId === item.id}
                             title="Remove this photo"
-                            onClick={() => void handleRemovePhoto(item.id, photo.id)}
+                            onClick={() => void handleRemovePhoto(item, photo.id)}
                           >
                             ×
                           </button>
@@ -388,16 +389,19 @@ export function RestaurantDetailPage() {
                         multiple
                         hidden
                         disabled={busyItemId === item.id || item.photos.length >= MAX_ITEM_PHOTOS}
-                        onChange={(e) => void handlePhotosChange(item.id, e)}
+                        onChange={(e) => void handlePhotosChange(item, e)}
                       />
                     </label>
                     <button
                       type="button"
                       className={`${s.actionBtn} ${s.actionBtnPrimary}`}
                       disabled={
-                        !item.photoUrl || !item.widthMm || item.arStatus !== 'pending' || busyItemId === item.id
+                        !item.photoUrl ||
+                        !item.widthMm ||
+                        item.arStatus !== 'pending' ||
+                        busyItemId === item.id
                       }
-                      onClick={() => void handleGenerateModel(item.id)}
+                      onClick={() => void handleGenerateModel(item)}
                       title={
                         !item.photoUrl
                           ? 'Upload a photo first'
@@ -423,8 +427,10 @@ export function RestaurantDetailPage() {
                         type="file"
                         accept=".glb,model/gltf-binary"
                         hidden
-                        disabled={!item.widthMm || item.arStatus !== 'pending' || busyItemId === item.id}
-                        onChange={(e) => void handleModelChange(item.id, e)}
+                        disabled={
+                          !item.widthMm || item.arStatus !== 'pending' || busyItemId === item.id
+                        }
+                        onChange={(e) => void handleModelChange(item, e)}
                       />
                     </label>
                     {item.arStatus === 'live' && (
@@ -437,7 +443,11 @@ export function RestaurantDetailPage() {
                         >
                           View in AR
                         </a>
-                        <button type="button" className={s.actionBtn} onClick={() => setQrItem(item)}>
+                        <button
+                          type="button"
+                          className={s.actionBtn}
+                          onClick={() => setQrItem(item)}
+                        >
                           Show QR code
                         </button>
                       </>
@@ -445,7 +455,7 @@ export function RestaurantDetailPage() {
                     <button
                       type="button"
                       className={`${s.actionBtn} ${s.actionBtnDanger}`}
-                      onClick={() => void handleDeleteItem(item.id)}
+                      onClick={() => void handleDeleteItem(item)}
                     >
                       Delete
                     </button>
@@ -512,8 +522,8 @@ export function RestaurantDetailPage() {
             </label>
           </div>
           <p className={s.addDishNote}>
-            Dimensions can be added later, but width is required before generating a 3D model —
-            it's used to scale the model to true size in AR.
+            Dimensions can be added later, but width is required before generating a 3D model — it's
+            used to scale the model to true size in AR.
           </p>
           <button type="submit" className={s.addDishSubmit}>
             Add dish

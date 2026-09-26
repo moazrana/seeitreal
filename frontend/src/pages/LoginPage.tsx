@@ -26,7 +26,7 @@ export function LoginPage() {
       // through the list page. Falls back to the list for an admin (sees
       // every restaurant) or a pre-existing owner with none/several yet.
       const restaurants = await restaurantsApi.list();
-      navigate(restaurants.length === 1 ? `/restaurants/${restaurants[0].id}` : '/restaurants');
+      navigate(restaurants.length === 1 ? `/restaurants/${restaurants[0].slug}` : '/restaurants');
     } catch (err) {
       setError(errorMessage(err));
     } finally {

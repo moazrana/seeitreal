@@ -1,25 +1,10 @@
-/* Login / signup — styled to match the marketing landing page's dark,
- * premium look (documents/seeitreal-design-spec.md). The dashboard's
- * global index.css now shares these same token values, but this stays
- * scoped under .page (a CSS Module) so page-specific rules here (the
- * viewfinder brackets, scan line, card layout) don't leak globally. */
+/* Login / signup — styled to match the marketing landing page
+ * (documents/seeitreal-design-spec.md). Colours come from the shared
+ * light/dark role tokens (@ar-menu/shared theme.css); this stays scoped
+ * under .page (a CSS Module) so page-specific rules here (the viewfinder
+ * brackets, scan line, card layout) don't leak globally. */
 
 .page {
-  --bg: #0a0b14;
-  --bg-elev: #12141f;
-  --bg-elev-2: #171a27;
-  --ink: #f4f5fb;
-  --muted: #9ba0b4;
-  --faint: #6a6f84;
-  --line: rgba(255, 255, 255, 0.08);
-  --line-strong: rgba(255, 255, 255, 0.16);
-  --blue: #4d7cff;
-  --violet: #8b5cf6;
-  --teal: #2dd4bf;
-  --grad: linear-gradient(105deg, #4d7cff, #8b5cf6 50%, #2dd4bf);
-  --danger: #ff6b6b;
-  --danger-bg: rgba(255, 107, 107, 0.1);
-  --danger-line: rgba(255, 107, 107, 0.35);
 
   --font-display:
     'Space Grotesk', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
@@ -34,7 +19,7 @@
   gap: 32px;
   padding: 32px 20px;
   background: var(--bg);
-  color: var(--ink);
+  color: var(--text);
   font-family: var(--font-body);
   overflow: clip;
 }
@@ -44,7 +29,7 @@
 }
 
 .page :global(:focus-visible) {
-  outline: 2px solid var(--teal);
+  outline: 2px solid var(--accent-strong);
   outline-offset: 3px;
   border-radius: 4px;
 }
@@ -56,7 +41,7 @@
   width: 820px;
   height: 620px;
   transform: translateX(-50%);
-  background: radial-gradient(closest-side, rgba(77, 124, 255, 0.16), transparent 70%);
+  background: radial-gradient(closest-side, rgb(var(--blue-rgb) / calc(var(--glow-strength) * 0.75)), transparent 70%);
   pointer-events: none;
 }
 
@@ -69,7 +54,7 @@
   font-size: 19px;
   font-weight: 600;
   text-decoration: none;
-  color: var(--ink);
+  color: var(--text);
 }
 
 .wordmarkGlyph {
@@ -79,7 +64,7 @@
 }
 
 .gradText {
-  background: var(--grad);
+  background: var(--grad-text);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -113,7 +98,7 @@
   position: absolute;
   width: 26px;
   height: 26px;
-  border-color: var(--teal);
+  border-color: var(--accent-strong);
   opacity: 0.7;
   pointer-events: none;
 }
@@ -137,8 +122,8 @@
 .card {
   position: relative;
   overflow: hidden;
-  background: var(--bg-elev);
-  border: 1px solid var(--line);
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: 20px;
   padding: 40px 36px;
   display: flex;
@@ -172,7 +157,7 @@
 }
 
 .subtitle {
-  color: var(--muted);
+  color: var(--text-muted);
   font-size: 14.5px;
   margin: 0;
 }
@@ -189,16 +174,16 @@
   gap: 7px;
   font-size: 13.5px;
   font-weight: 500;
-  color: var(--muted);
+  color: var(--text-muted);
 }
 
 .input {
   font: inherit;
   font-family: var(--font-body);
   font-size: 15px;
-  color: var(--ink);
-  background: var(--bg-elev-2);
-  border: 1px solid var(--line-strong);
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
   border-radius: 10px;
   padding: 11px 14px;
   transition:
@@ -207,18 +192,18 @@
 }
 
 .input::placeholder {
-  color: var(--faint);
+  color: var(--text-faint);
 }
 
 .input:focus-visible {
   outline: none;
-  border-color: var(--teal);
-  box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.15);
+  border-color: var(--accent-strong);
+  box-shadow: 0 0 0 3px var(--focus-ring);
 }
 
 .hint {
   font-weight: 400;
-  color: var(--faint);
+  color: var(--text-faint);
   font-size: 12.5px;
 }
 
@@ -234,7 +219,7 @@
   font-family: var(--font-body);
   font-size: 15px;
   font-weight: 600;
-  color: #060712;
+  color: var(--on-grad);
   background: var(--grad);
   cursor: pointer;
   transition:
@@ -255,12 +240,12 @@
 .switch {
   text-align: center;
   font-size: 13.5px;
-  color: var(--muted);
+  color: var(--text-muted);
   margin: 0;
 }
 
 .switch a {
-  color: var(--teal);
+  color: var(--accent-strong);
   text-decoration: none;
   font-weight: 500;
 }
@@ -271,7 +256,7 @@
 
 .footerNote {
   position: relative;
-  color: var(--faint);
+  color: var(--text-faint);
   font-size: 13px;
   text-align: center;
 }

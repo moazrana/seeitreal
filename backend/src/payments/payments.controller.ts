@@ -4,8 +4,6 @@ import {
   Get,
   HttpCode,
   HttpStatus,
-  Param,
-  ParseIntPipe,
   Patch,
   Post,
   Req,
@@ -13,6 +11,7 @@ import {
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
+import { RestaurantIdFromSlug } from '../common/decorators/slug-param.decorators';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import type { AuthenticatedUser } from '../auth/types/authenticated-user.interface';
@@ -51,37 +50,37 @@ export class PaymentsController {
     return this.payments.validatePromo(dto);
   }
 
-  @Get('restaurants/:id/subscription')
+  @Get('restaurants/:restaurantSlug/subscription')
   getSubscription(
     @CurrentUser() user: AuthenticatedUser,
-    @Param('id', ParseIntPipe) id: number,
+    @RestaurantIdFromSlug() id: number,
   ) {
     return this.payments.getSubscription(id, user);
   }
 
-  @Get('restaurants/:id/invoices')
+  @Get('restaurants/:restaurantSlug/invoices')
   listInvoices(
     @CurrentUser() user: AuthenticatedUser,
-    @Param('id', ParseIntPipe) id: number,
+    @RestaurantIdFromSlug() id: number,
   ) {
     return this.payments.listInvoices(id, user);
   }
 
   @Throttle(BILLING_THROTTLE)
-  @Post('restaurants/:id/checkout')
+  @Post('restaurants/:restaurantSlug/checkout')
   checkout(
     @CurrentUser() user: AuthenticatedUser,
-    @Param('id', ParseIntPipe) id: number,
+    @RestaurantIdFromSlug() id: number,
     @Body() dto: CheckoutDto,
   ) {
     return this.payments.checkout(id, user, dto);
   }
 
   @Throttle(BILLING_THROTTLE)
-  @Patch('restaurants/:id/subscription')
+  @Patch('restaurants/:restaurantSlug/subscription')
   changePackage(
     @CurrentUser() user: AuthenticatedUser,
-    @Param('id', ParseIntPipe) id: number,
+    @RestaurantIdFromSlug() id: number,
     @Body() dto: ChangePackageDto,
   ) {
     return this.payments.changePackage(id, user, dto);
@@ -89,10 +88,10 @@ export class PaymentsController {
 
   @Throttle(BILLING_THROTTLE)
   @HttpCode(HttpStatus.OK)
-  @Post('restaurants/:id/cancel')
+  @Post('restaurants/:restaurantSlug/cancel')
   cancel(
     @CurrentUser() user: AuthenticatedUser,
-    @Param('id', ParseIntPipe) id: number,
+    @RestaurantIdFromSlug() id: number,
   ) {
     return this.payments.cancel(id, user);
   }

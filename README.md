@@ -13,7 +13,8 @@ npm workspaces monorepo:
 - `rootApp/` — React + Vite **Root App**, the platform operator's separate admin
   application (`rootApp/ROOT-APP-Implementation-Spec.md`) — its own build, its own hardened
   2FA-only auth, never bundled with `frontend/`.
-- `shared/` — TypeScript types/enums shared by backend and both frontends.
+- `shared/` — TypeScript types/enums shared by backend and both frontends, plus the canonical
+  light/dark theme tokens (see [Theming](#theming)).
 
 ## Prerequisites
 
@@ -49,6 +50,8 @@ Uploads and 3D models (optional until you touch those features):
   `documents/3d-model-enhancement.md` §2.
 - `AR_ENVIRONMENT_IMAGE_URL` — optional HDR environment-image URL for the diner AR viewer's
   lighting/reflections; defaults to `"neutral"` (model-viewer's built-in studio IBL) when unset.
+- `AR_ENVIRONMENT_IMAGE_URL_LIGHT` — optional light-mode counterpart, used when the diner's phone
+  is in light mode; defaults to `"neutral"` (never falls back to the dark-mode HDR).
 
 Payments (optional until you touch billing — see `documents/USER-APP-subscription-and-ui.md`):
 
@@ -121,6 +124,7 @@ the whole thing in one shot): `backend/.claude/skills/run-backend/smoke.sh`.
 ```bash
 npm run test -w backend             # unit tests
 npm run test:e2e -w backend         # e2e (needs the DB running + migrated)
+npm run test -w shared              # theme token contract + WCAG AA contrast checks
 ```
 
 ## Linting / formatting
@@ -173,7 +177,7 @@ allow-list, and a global exception filter that never leaks internals to clients.
 
 - Multi-photo upload: an item accepts **1–5 photos** (`MenuItemPhoto`, ordered), each validated
   independently through the same §7.5 pipeline as a single photo. The first photo is always the
-  item's display photo. `POST/DELETE .../items/:id/photos[/:photoId]` replaced the old
+  item's display photo. `POST/DELETE .../items/:itemSlug/photos[/:photoId]` replaced the old
   single-photo `.../photo` endpoint.
 - Generation routing: 1 photo uses Tripo's single image-to-3D endpoint; 2–5 photos use its
   **multiview** endpoint (capped at 4 images, in upload order — Tripo's documented multiview
@@ -187,7 +191,7 @@ allow-list, and a global exception filter that never leaks internals to clients.
   instead of flat/floating.
 - A photo-capture guide (bright even lighting, plain background, multiple angles) is shown to
   owners at the upload step (`PhotoCaptureGuide` in the frontend).
-- Hero-dish bypass: `POST .../items/:id/model` lets an owner upload an already-produced `.glb`
+- Hero-dish bypass: `POST .../items/:itemSlug/model` lets an owner upload an already-produced `.glb`
   (Polycam/photogrammetry/a 3D artist) instead of generating one via Tripo. Validated the same
   way as an image upload (whitelist + real binary-header verification via `GlbUploadService`,
   size-limited, server-generated filename), converted to USDZ, and routed into the normal
@@ -253,55 +257,83 @@ and the generate-3D-model trigger.
 for what it specifically defers): QR code generation, analytics, deals/promos, billing,
 support/feedback.
 
+## Theming
+
+Light and dark mode per `documents/USER-APP-theming.md`:
+
+- **One source of truth:** `shared/src/theme.ts` defines the semantic role tokens (`--bg`,
+  `--surface`, `--text`, `--text-muted`, `--border`, `--accent-strong`, …) for both themes, plus
+  the per-theme Three.js hero and `<model-viewer>` parameters. `npm run build -w shared` also
+  generates `dist/theme.css` and `dist/theme-init.js` from it. Components use `var(--token)` only
+  — never a raw colour; add or change a colour in `theme.ts`.
+- **Dashboard / landing / auth:** default to the system preference; the System / Light / Dark
+  toggle (landing nav + dashboard header) stores an explicit choice in `localStorage`
+  (`seeitreal.theme`) and sets `data-theme` on `<html>`. A blocking same-origin
+  `/theme-init.js` (served/emitted by a small plugin in `frontend/vite.config.ts`) applies it
+  before first paint — no flash, and no inline script, so no `'unsafe-inline'` is ever needed in
+  a CSP.
+- **Diner AR viewer / not-found / expired pages:** no toggle; they follow the diner's
+  `prefers-color-scheme` in pure CSS. `/api/static/ar-viewer-theme.js` (same-origin, so the
+  viewer CSP stays `script-src 'self'`) swaps `<model-viewer>`'s `exposure` and
+  `environment-image` for the active theme.
+- **Contrast:** `npm run test -w shared` asserts WCAG AA for text on every surface in both
+  themes. (The spec's light `--text-faint` was nudged from `#868ca0` to `#7f859a` to clear 3:1
+  on `--surface-2`.)
+
 ## API overview
 
 All routes are prefixed `/api`.
 
-| Method           | Path                                            | Auth           | Notes                                                              |
-| ---------------- | ----------------------------------------------- | -------------- | ------------------------------------------------------------------ |
-| POST             | `/auth/signup`                                  | —              | creates an owner account                                           |
-| POST             | `/auth/login`                                   | —              |                                                                    |
-| POST             | `/auth/refresh`                                 | refresh cookie | rotates the refresh token                                          |
-| POST             | `/auth/logout`                                  | refresh cookie |                                                                    |
-| POST             | `/auth/verify-email`                            | —              |                                                                    |
-| POST             | `/auth/request-password-reset`                  | —              | always returns a generic response                                  |
-| POST             | `/auth/reset-password`                          | —              | revokes all existing sessions                                      |
-| POST/GET         | `/restaurants`                                  | JWT            | scoped to the caller; admin sees all                               |
-| GET/PATCH/DELETE | `/restaurants/:id`                              | JWT            | 404 on cross-tenant access; 403 if the restaurant is suspended     |
-| POST             | `/restaurants/:id/logo`                         | JWT            | multipart image upload                                             |
-| POST/GET         | `/restaurants/:id/categories`                   | JWT            |                                                                    |
-| PATCH/DELETE     | `/restaurants/:id/categories/:catId`            | JWT            |                                                                    |
-| POST/GET         | `/restaurants/:id/items`                        | JWT            |                                                                    |
-| GET/PATCH/DELETE | `/restaurants/:id/items/:itemId`                | JWT            |                                                                    |
-| POST             | `/restaurants/:id/items/:itemId/photos`         | JWT            | multipart, 1–5 files (field `files`); resets AR status; 400 past 5 total |
-| DELETE           | `/restaurants/:id/items/:itemId/photos/:photoId`| JWT            | 404 if the photo isn't this item's; resets AR status                |
-| POST             | `/restaurants/:id/items/:itemId/generate-model` | JWT            | triggers Tripo (single-image or multiview by photo count); only from `pending`, requires `widthMm` |
-| POST             | `/restaurants/:id/items/:itemId/model`          | JWT            | hero-dish bypass: multipart `.glb` upload, skips Tripo; only from `pending`, requires `widthMm` |
-| GET              | `/uploads/:prefix/:filename`                    | —              | read-only static serving (local storage driver)                    |
-| POST             | `/webhooks/tripo?token=...`                     | shared secret  | Tripo task-complete callback                                       |
-| GET              | `/m/:slug`                                      | —              | public diner AR viewer page (HTML); 404 if suspended/hidden        |
-| GET              | `/vendor/model-viewer.min.js`                   | —              | self-hosted `<model-viewer>` bundle                                |
+Customer routes address a restaurant by `Restaurant.slug` and an item by `MenuItem.publicSlug`,
+never by numeric id. The slug is resolved server-side (`RestaurantIdFromSlug`/`ItemIdFromSlug`),
+and ownership is still enforced in the service layer. Categories and photos keep numeric ids;
+they only appear in API requests, never in a browser URL.
+
+| Method           | Path                                                 | Auth           | Notes                                                                                              |
+| ---------------- | ---------------------------------------------------- | -------------- | -------------------------------------------------------------------------------------------------- |
+| POST             | `/auth/signup`                                       | —              | creates an owner account                                                                           |
+| POST             | `/auth/login`                                        | —              |                                                                                                    |
+| POST             | `/auth/refresh`                                      | refresh cookie | rotates the refresh token                                                                          |
+| POST             | `/auth/logout`                                       | refresh cookie |                                                                                                    |
+| POST             | `/auth/verify-email`                                 | —              |                                                                                                    |
+| POST             | `/auth/request-password-reset`                       | —              | always returns a generic response                                                                  |
+| POST             | `/auth/reset-password`                               | —              | revokes all existing sessions                                                                      |
+| POST/GET         | `/restaurants`                                       | JWT            | scoped to the caller; admin sees all                                                               |
+| GET/PATCH/DELETE | `/restaurants/:slug`                                 | JWT            | 404 on cross-tenant access; 403 if the restaurant is suspended                                     |
+| POST             | `/restaurants/:slug/logo`                            | JWT            | multipart image upload                                                                             |
+| POST/GET         | `/restaurants/:slug/categories`                      | JWT            |                                                                                                    |
+| PATCH/DELETE     | `/restaurants/:slug/categories/:catId`               | JWT            |                                                                                                    |
+| POST/GET         | `/restaurants/:slug/items`                           | JWT            |                                                                                                    |
+| GET/PATCH/DELETE | `/restaurants/:slug/items/:itemSlug`                 | JWT            |                                                                                                    |
+| POST             | `/restaurants/:slug/items/:itemSlug/photos`          | JWT            | multipart, 1–5 files (field `files`); resets AR status; 400 past 5 total                           |
+| DELETE           | `/restaurants/:slug/items/:itemSlug/photos/:photoId` | JWT            | 404 if the photo isn't this item's; resets AR status                                               |
+| POST             | `/restaurants/:slug/items/:itemSlug/generate-model`  | JWT            | triggers Tripo (single-image or multiview by photo count); only from `pending`, requires `widthMm` |
+| POST             | `/restaurants/:slug/items/:itemSlug/model`           | JWT            | hero-dish bypass: multipart `.glb` upload, skips Tripo; only from `pending`, requires `widthMm`    |
+| GET              | `/uploads/:prefix/:filename`                         | —              | read-only static serving (local storage driver)                                                    |
+| POST             | `/webhooks/tripo?token=...`                          | shared secret  | Tripo task-complete callback                                                                       |
+| GET              | `/m/:slug`                                           | —              | public diner AR viewer page (HTML); 404 if suspended/hidden                                        |
+| GET              | `/vendor/model-viewer.min.js`                        | —              | self-hosted `<model-viewer>` bundle                                                                |
 
 **Root App** — every route below is also IP-allowlist-gated (`ROOT_APP_IP_ALLOWLIST`) on top of
 its listed auth, and fully separate from the customer JWT above (`root-jwt` Passport strategy,
 `RootAdminUser` identity).
 
-| Method | Path                                         | Auth                    | Notes                                                      |
-| ------ | -------------------------------------------- | ----------------------- | ---------------------------------------------------------- |
-| POST   | `/root/auth/login`                           | IP allowlist            | email+password → a 2FA challenge, never a session directly |
-| POST   | `/root/auth/totp/verify-setup`               | IP allowlist            | first login only; activates 2FA, returns backup codes      |
-| POST   | `/root/auth/totp/verify`                     | IP allowlist            | TOTP code or backup code → session                         |
-| POST   | `/root/auth/refresh`                         | `ar_root_refresh_token` | rotates the refresh token                                  |
-| POST   | `/root/auth/logout`                          | `ar_root_refresh_token` |                                                            |
-| GET    | `/root/dashboard`                            | root JWT                | any role                                                   |
-| GET    | `/root/restaurants`                          | root JWT                | `?q=` search, `?status=active\|suspended`; any role        |
-| GET    | `/root/restaurants/:id`                      | root JWT                | any role                                                   |
-| POST   | `/root/restaurants/:id/suspend`              | root JWT + `superadmin` | body: `{ reason }`                                         |
-| POST   | `/root/restaurants/:id/reactivate`           | root JWT + `superadmin` |                                                            |
-| POST   | `/root/restaurants/:id/items/:itemId/hide`   | root JWT + `superadmin` |                                                            |
-| POST   | `/root/restaurants/:id/items/:itemId/unhide` | root JWT + `superadmin` |                                                            |
-| GET    | `/root/qa-queue`                             | root JWT                | any role                                                   |
-| POST   | `/root/items/:id/approve`                    | root JWT                | requires both GLB and USDZ present, and `widthMm` set      |
-| POST   | `/root/items/:id/reject`                     | root JWT                | body: `{ note }`                                           |
+| Method | Path                                           | Auth                    | Notes                                                      |
+| ------ | ---------------------------------------------- | ----------------------- | ---------------------------------------------------------- |
+| POST   | `/root/auth/login`                             | IP allowlist            | email+password → a 2FA challenge, never a session directly |
+| POST   | `/root/auth/totp/verify-setup`                 | IP allowlist            | first login only; activates 2FA, returns backup codes      |
+| POST   | `/root/auth/totp/verify`                       | IP allowlist            | TOTP code or backup code → session                         |
+| POST   | `/root/auth/refresh`                           | `ar_root_refresh_token` | rotates the refresh token                                  |
+| POST   | `/root/auth/logout`                            | `ar_root_refresh_token` |                                                            |
+| GET    | `/root/dashboard`                              | root JWT                | any role                                                   |
+| GET    | `/root/restaurants`                            | root JWT                | `?q=` search, `?status=active\|suspended`; any role        |
+| GET    | `/root/restaurants/:slug`                      | root JWT                | any role                                                   |
+| POST   | `/root/restaurants/:slug/suspend`              | root JWT + `superadmin` | body: `{ reason }`                                         |
+| POST   | `/root/restaurants/:slug/reactivate`           | root JWT + `superadmin` |                                                            |
+| POST   | `/root/restaurants/:slug/items/:itemId/hide`   | root JWT + `superadmin` |                                                            |
+| POST   | `/root/restaurants/:slug/items/:itemId/unhide` | root JWT + `superadmin` |                                                            |
+| GET    | `/root/qa-queue`                               | root JWT                | any role                                                   |
+| POST   | `/root/items/:id/approve`                      | root JWT                | requires both GLB and USDZ present, and `widthMm` set      |
+| POST   | `/root/items/:id/reject`                       | root JWT                | body: `{ note }`                                           |
 
 Full OpenAPI/Swagger docs are not wired up yet — tracked as follow-up work.

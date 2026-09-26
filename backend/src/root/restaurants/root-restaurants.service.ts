@@ -34,9 +34,9 @@ export class RootRestaurantsService {
     });
   }
 
-  async detail(id: number) {
+  async detail(slug: string) {
     const restaurant = await this.prisma.restaurant.findUnique({
-      where: { id },
+      where: { slug },
       include: {
         items: { orderBy: { createdAt: 'desc' } },
         _count: { select: { supportTickets: true, feedback: true } },
@@ -49,18 +49,18 @@ export class RootRestaurantsService {
   }
 
   async suspend(
-    id: number,
+    slug: string,
     reason: string,
     admin: AuthenticatedRootAdmin,
     ip: string | undefined,
   ) {
-    const restaurant = await this.requireRestaurant(id);
+    const restaurant = await this.requireRestaurant(slug);
     if (restaurant.suspended) {
       throw new BadRequestException('Restaurant is already suspended');
     }
 
     const updated = await this.prisma.restaurant.update({
-      where: { id },
+      where: { id: restaurant.id },
       data: {
         suspended: true,
         suspendedAt: new Date(),
@@ -71,7 +71,7 @@ export class RootRestaurantsService {
       admin.adminId,
       'suspend_restaurant',
       'restaurant',
-      id,
+      restaurant.id,
       reason,
       ip,
     );
@@ -79,24 +79,24 @@ export class RootRestaurantsService {
   }
 
   async reactivate(
-    id: number,
+    slug: string,
     admin: AuthenticatedRootAdmin,
     ip: string | undefined,
   ) {
-    const restaurant = await this.requireRestaurant(id);
+    const restaurant = await this.requireRestaurant(slug);
     if (!restaurant.suspended) {
       throw new BadRequestException('Restaurant is not suspended');
     }
 
     const updated = await this.prisma.restaurant.update({
-      where: { id },
+      where: { id: restaurant.id },
       data: { suspended: false, suspendedAt: null, suspendedReason: null },
     });
     await this.audit.log(
       admin.adminId,
       'reactivate_restaurant',
       'restaurant',
-      id,
+      restaurant.id,
       undefined,
       ip,
     );
@@ -104,12 +104,12 @@ export class RootRestaurantsService {
   }
 
   async hideItem(
-    restaurantId: number,
+    slug: string,
     itemId: number,
     admin: AuthenticatedRootAdmin,
     ip: string | undefined,
   ) {
-    const item = await this.requireItem(restaurantId, itemId);
+    const item = await this.requireItem(slug, itemId);
     const updated = await this.prisma.menuItem.update({
       where: { id: item.id },
       data: { hiddenByAdmin: true },
@@ -126,12 +126,12 @@ export class RootRestaurantsService {
   }
 
   async unhideItem(
-    restaurantId: number,
+    slug: string,
     itemId: number,
     admin: AuthenticatedRootAdmin,
     ip: string | undefined,
   ) {
-    const item = await this.requireItem(restaurantId, itemId);
+    const item = await this.requireItem(slug, itemId);
     const updated = await this.prisma.menuItem.update({
       where: { id: item.id },
       data: { hiddenByAdmin: false },
@@ -147,9 +147,9 @@ export class RootRestaurantsService {
     return updated;
   }
 
-  private async requireRestaurant(id: number) {
+  private async requireRestaurant(slug: string) {
     const restaurant = await this.prisma.restaurant.findUnique({
-      where: { id },
+      where: { slug },
     });
     if (!restaurant) {
       throw new NotFoundException('Restaurant not found');
@@ -157,11 +157,12 @@ export class RootRestaurantsService {
     return restaurant;
   }
 
-  private async requireItem(restaurantId: number, itemId: number) {
+  private async requireItem(slug: string, itemId: number) {
+    const restaurant = await this.requireRestaurant(slug);
     const item = await this.prisma.menuItem.findUnique({
       where: { id: itemId },
     });
-    if (!item || item.restaurantId !== restaurantId) {
+    if (!item || item.restaurantId !== restaurant.id) {
       throw new NotFoundException('Item not found');
     }
     return item;

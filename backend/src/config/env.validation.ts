@@ -159,6 +159,13 @@ class EnvironmentVariables {
   @IsString()
   AR_ENVIRONMENT_IMAGE_URL?: string;
 
+  // Light-mode counterpart (documents/USER-APP-theming.md §5): a brighter,
+  // neutral HDR for diners whose phone is in light mode. Falls back to
+  // "neutral" when unset, never to the dark-mode HDR.
+  @IsOptional()
+  @IsString()
+  AR_ENVIRONMENT_IMAGE_URL_LIGHT?: string;
+
   // --- GLB -> USDZ conversion — optional at boot, same reasoning as the
   // Tripo vars above; UsdzConversionService falls back to the conventional
   // /opt/usdz-tools install path (see backend README) if unset.

@@ -1,4 +1,9 @@
-import { renderItemPage, renderNotFoundPage } from './ar-viewer.html';
+import {
+  AR_VIEWER_THEME_SCRIPT_PATH,
+  renderItemPage,
+  renderNotFoundPage,
+  renderSubscriptionExpiredPage,
+} from './ar-viewer.html';
 
 function fakeItem(
   overrides: Partial<Parameters<typeof renderItemPage>[0]> = {},
@@ -44,7 +49,7 @@ describe('renderItemPage', () => {
         modelUsdzUrl: 'https://cdn.example/model.usdz',
       }),
       'Demo Diner',
-      'https://cdn.example/kitchen.hdr',
+      { dark: 'https://cdn.example/kitchen.hdr', light: 'neutral' },
     );
 
     expect(html).toContain(
@@ -162,6 +167,64 @@ describe('renderItemPage', () => {
     );
 
     expect(html).not.toContain('" onload="alert(1)');
+  });
+});
+
+describe('theming (documents/USER-APP-theming.md §5)', () => {
+  const liveItem = fakeItem({
+    arStatus: 'live',
+    modelGlbUrl: 'https://cdn.example/model.glb',
+    modelUsdzUrl: 'https://cdn.example/model.usdz',
+  });
+
+  it.each([
+    ['item', renderItemPage(liveItem, 'Demo Diner')],
+    ['not-found', renderNotFoundPage()],
+    ['expired', renderSubscriptionExpiredPage('Demo Diner')],
+  ])(
+    'the %s page follows the diner system preference with shared tokens and no toggle override',
+    (_name, html) => {
+      expect(html).toContain('@media (prefers-color-scheme: light)');
+      expect(html).toContain('--bg: #0a0b14;');
+      expect(html).toContain('--bg: #eceef3;');
+      expect(html).toContain('background: var(--bg);');
+      expect(html).not.toContain('data-theme=');
+      // No raw white/black page default left behind.
+      expect(html).not.toContain('#f7f7f8');
+    },
+  );
+
+  it('renders per-theme exposure/environment data and loads the same-origin theme script after the viewer', () => {
+    const html = renderItemPage(liveItem, 'Demo Diner', {
+      dark: 'https://cdn.example/kitchen.hdr',
+      light: 'https://cdn.example/studio.hdr',
+    });
+
+    expect(html).toContain(
+      'data-environment-image-dark="https://cdn.example/kitchen.hdr"',
+    );
+    expect(html).toContain(
+      'data-environment-image-light="https://cdn.example/studio.hdr"',
+    );
+    expect(html).toContain('data-exposure-dark="1.0"');
+    expect(html).toContain('data-exposure-light="1.1"');
+    expect(html.indexOf('</model-viewer>')).toBeLessThan(
+      html.indexOf(`<script src="${AR_VIEWER_THEME_SCRIPT_PATH}">`),
+    );
+  });
+
+  it('escapes the per-theme environment URLs', () => {
+    const html = renderItemPage(liveItem, 'Demo Diner', {
+      dark: 'neutral',
+      light: 'x.hdr" onload="alert(1)',
+    });
+
+    expect(html).not.toContain('" onload="alert(1)');
+  });
+
+  it('never inlines a script (CSP stays script-src self)', () => {
+    const html = renderItemPage(liveItem, 'Demo Diner');
+    expect(html).not.toMatch(/<script(?![^>]*\bsrc=)[^>]*>/);
   });
 });
 

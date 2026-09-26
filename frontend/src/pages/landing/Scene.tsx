@@ -1,5 +1,8 @@
 import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
+import { heroSceneTheme } from '@ar-menu/shared';
+import type { HeroSceneTheme } from '@ar-menu/shared';
+import { useTheme } from '../../context/useTheme';
 import styles from './landing.module.css';
 
 const POINT_COUNT = 1400;
@@ -16,9 +19,20 @@ const POINT_COUNT = 1400;
  * Everything created here (geometries, materials, renderer) is disposed on
  * unmount and the render loop's rAF is cancelled, per the porting note in
  * spec §3.
+ *
+ * Theme-aware (documents/USER-APP-theming.md §5): the canvas is
+ * transparent over `--bg`, and the stroke/point colours and opacities come
+ * from `heroSceneTheme` in @ar-menu/shared — deeper lines and a fainter
+ * point cloud on light pages so the shape neither vanishes nor turns into a
+ * smudge. Re-applied live on toggle without rebuilding the scene.
  */
 export function Scene() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const { resolvedTheme } = useTheme();
+  const applyThemeRef = useRef<((theme: HeroSceneTheme) => void) | null>(null);
+  // Read inside the (mount-only) scene effect for the initial colours, so
+  // the first frame is already correct instead of flashing the dark look.
+  const initialThemeRef = useRef(heroSceneTheme[resolvedTheme]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -43,11 +57,7 @@ export function Scene() {
     // see-through line-art object rather than a solid lit shape.
     const geometry = new THREE.IcosahedronGeometry(1.9, 0);
     const edgesGeometry = new THREE.EdgesGeometry(geometry);
-    const edgesMaterial = new THREE.LineBasicMaterial({
-      color: 0x9db4ff,
-      transparent: true,
-      opacity: 0.55,
-    });
+    const edgesMaterial = new THREE.LineBasicMaterial({ transparent: true });
     const wireframe = new THREE.LineSegments(edgesGeometry, edgesMaterial);
     scene.add(wireframe);
 
@@ -65,14 +75,21 @@ export function Scene() {
     }
     pointsGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     const pointsMaterial = new THREE.PointsMaterial({
-      color: 0x4d7cff,
       size: 0.022,
       transparent: true,
-      opacity: 0.5,
       sizeAttenuation: true,
     });
     const points = new THREE.Points(pointsGeometry, pointsMaterial);
     scene.add(points);
+
+    const applyTheme = (theme: HeroSceneTheme) => {
+      edgesMaterial.color.setHex(theme.wireColor);
+      edgesMaterial.opacity = theme.wireOpacity;
+      pointsMaterial.color.setHex(theme.pointColor);
+      pointsMaterial.opacity = theme.pointOpacity;
+    };
+    applyTheme(initialThemeRef.current);
+    applyThemeRef.current = applyTheme;
 
     // Pointer parallax: camera eases toward the pointer position.
     const pointer = { x: 0, y: 0 };
@@ -119,6 +136,7 @@ export function Scene() {
     animate();
 
     return () => {
+      applyThemeRef.current = null;
       cancelAnimationFrame(frameId);
       resizeObserver.disconnect();
       window.removeEventListener('pointermove', handlePointerMove);
@@ -132,6 +150,10 @@ export function Scene() {
       renderer.dispose();
     };
   }, []);
+
+  useEffect(() => {
+    applyThemeRef.current?.(heroSceneTheme[resolvedTheme]);
+  }, [resolvedTheme]);
 
   return <canvas ref={canvasRef} className={styles.sceneCanvas} aria-hidden="true" />;
 }

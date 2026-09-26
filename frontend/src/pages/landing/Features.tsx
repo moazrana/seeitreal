@@ -28,17 +28,21 @@ export function Features() {
               >
                 <path
                   d="M8 16V10a2 2 0 0 1 2-2h6M40 16V10a2 2 0 0 0-2-2h-6M8 32v6a2 2 0 0 0 2 2h6M40 32v6a2 2 0 0 1-2 2h-6"
-                  stroke="#2DD4BF"
+                  style={{ stroke: 'var(--teal)' }}
                   strokeWidth="2"
                   strokeLinecap="round"
                 />
                 <path
                   d="M24 14l11 6.3v11.4L24 38l-11-6.3V20.3z"
-                  stroke="#8B5CF6"
+                  style={{ stroke: 'var(--violet)' }}
                   strokeWidth="1.6"
                   strokeLinejoin="round"
                 />
-                <path d="M24 14v12M24 26l11-6.3M24 26l-11-6.3" stroke="#4D7CFF" strokeWidth="1.2" />
+                <path
+                  d="M24 14v12M24 26l11-6.3M24 26l-11-6.3"
+                  style={{ stroke: 'var(--blue)' }}
+                  strokeWidth="1.2"
+                />
               </svg>
             </div>
             <h3 className={styles.bentoTitle}>Real size, not guesswork</h3>

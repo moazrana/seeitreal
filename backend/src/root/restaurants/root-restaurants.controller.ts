@@ -34,56 +34,56 @@ export class RootRestaurantsController {
     return this.service.list(query);
   }
 
-  @Get(':id')
-  detail(@Param('id', ParseIntPipe) id: number) {
-    return this.service.detail(id);
+  @Get(':slug')
+  detail(@Param('slug') slug: string) {
+    return this.service.detail(slug);
   }
 
   // Destructive actions — superadmin only (spec §5 "disable a client").
   @RootRoles(RootAdminRole.SUPERADMIN)
   @HttpCode(HttpStatus.OK)
-  @Post(':id/suspend')
+  @Post(':slug/suspend')
   suspend(
     @CurrentRootAdmin() admin: AuthenticatedRootAdmin,
-    @Param('id', ParseIntPipe) id: number,
+    @Param('slug') slug: string,
     @Body() dto: SuspendRestaurantDto,
     @Req() req: Request,
   ) {
-    return this.service.suspend(id, dto.reason, admin, req.ip);
+    return this.service.suspend(slug, dto.reason, admin, req.ip);
   }
 
   @RootRoles(RootAdminRole.SUPERADMIN)
   @HttpCode(HttpStatus.OK)
-  @Post(':id/reactivate')
+  @Post(':slug/reactivate')
   reactivate(
     @CurrentRootAdmin() admin: AuthenticatedRootAdmin,
-    @Param('id', ParseIntPipe) id: number,
+    @Param('slug') slug: string,
     @Req() req: Request,
   ) {
-    return this.service.reactivate(id, admin, req.ip);
+    return this.service.reactivate(slug, admin, req.ip);
   }
 
   @RootRoles(RootAdminRole.SUPERADMIN)
   @HttpCode(HttpStatus.OK)
-  @Post(':id/items/:itemId/hide')
+  @Post(':slug/items/:itemId/hide')
   hideItem(
     @CurrentRootAdmin() admin: AuthenticatedRootAdmin,
-    @Param('id', ParseIntPipe) id: number,
+    @Param('slug') slug: string,
     @Param('itemId', ParseIntPipe) itemId: number,
     @Req() req: Request,
   ) {
-    return this.service.hideItem(id, itemId, admin, req.ip);
+    return this.service.hideItem(slug, itemId, admin, req.ip);
   }
 
   @RootRoles(RootAdminRole.SUPERADMIN)
   @HttpCode(HttpStatus.OK)
-  @Post(':id/items/:itemId/unhide')
+  @Post(':slug/items/:itemId/unhide')
   unhideItem(
     @CurrentRootAdmin() admin: AuthenticatedRootAdmin,
-    @Param('id', ParseIntPipe) id: number,
+    @Param('slug') slug: string,
     @Param('itemId', ParseIntPipe) itemId: number,
     @Req() req: Request,
   ) {
-    return this.service.unhideItem(id, itemId, admin, req.ip);
+    return this.service.unhideItem(slug, itemId, admin, req.ip);
   }
 }

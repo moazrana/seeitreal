@@ -15,6 +15,10 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { Throttle } from '@nestjs/throttler';
+import {
+  ItemIdFromSlug,
+  RestaurantIdFromSlug,
+} from '../common/decorators/slug-param.decorators';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { ManualModelUploadService } from '../tripo/manual-model-upload.service';
@@ -28,7 +32,7 @@ import { MAX_ITEM_PHOTOS } from './menu-items.constants';
 import { MenuItemsService } from './menu-items.service';
 
 @UseGuards(JwtAuthGuard)
-@Controller('restaurants/:restaurantId/items')
+@Controller('restaurants/:restaurantSlug/items')
 export class MenuItemsController {
   constructor(
     private readonly service: MenuItemsService,
@@ -39,7 +43,7 @@ export class MenuItemsController {
   @Post()
   create(
     @CurrentUser() user: AuthenticatedUser,
-    @Param('restaurantId', ParseIntPipe) restaurantId: number,
+    @RestaurantIdFromSlug() restaurantId: number,
     @Body() dto: CreateMenuItemDto,
   ) {
     return this.service.create(restaurantId, user, dto);
@@ -48,35 +52,35 @@ export class MenuItemsController {
   @Get()
   findAll(
     @CurrentUser() user: AuthenticatedUser,
-    @Param('restaurantId', ParseIntPipe) restaurantId: number,
+    @RestaurantIdFromSlug() restaurantId: number,
   ) {
     return this.service.findAll(restaurantId, user);
   }
 
-  @Get(':id')
+  @Get(':itemSlug')
   findOne(
     @CurrentUser() user: AuthenticatedUser,
-    @Param('restaurantId', ParseIntPipe) restaurantId: number,
-    @Param('id', ParseIntPipe) id: number,
+    @RestaurantIdFromSlug() restaurantId: number,
+    @ItemIdFromSlug() id: number,
   ) {
     return this.service.findOne(restaurantId, id, user);
   }
 
-  @Patch(':id')
+  @Patch(':itemSlug')
   update(
     @CurrentUser() user: AuthenticatedUser,
-    @Param('restaurantId', ParseIntPipe) restaurantId: number,
-    @Param('id', ParseIntPipe) id: number,
+    @RestaurantIdFromSlug() restaurantId: number,
+    @ItemIdFromSlug() id: number,
     @Body() dto: UpdateMenuItemDto,
   ) {
     return this.service.update(restaurantId, id, user, dto);
   }
 
-  @Delete(':id')
+  @Delete(':itemSlug')
   remove(
     @CurrentUser() user: AuthenticatedUser,
-    @Param('restaurantId', ParseIntPipe) restaurantId: number,
-    @Param('id', ParseIntPipe) id: number,
+    @RestaurantIdFromSlug() restaurantId: number,
+    @ItemIdFromSlug() id: number,
   ) {
     return this.service.remove(restaurantId, id, user);
   }
@@ -89,7 +93,7 @@ export class MenuItemsController {
   // `limits.fileSize`/`maxCount` here are the primary, fast-fail guards
   // (reject before the body is fully buffered); MenuItemsService/
   // ImageUploadService re-check both defensively too.
-  @Post(':id/photos')
+  @Post(':itemSlug/photos')
   @UseInterceptors(
     FilesInterceptor('files', MAX_ITEM_PHOTOS, {
       limits: { fileSize: MAX_UPLOAD_BYTES },
@@ -97,8 +101,8 @@ export class MenuItemsController {
   )
   async addPhotos(
     @CurrentUser() user: AuthenticatedUser,
-    @Param('restaurantId', ParseIntPipe) restaurantId: number,
-    @Param('id', ParseIntPipe) id: number,
+    @RestaurantIdFromSlug() restaurantId: number,
+    @ItemIdFromSlug() id: number,
     @UploadedFiles() files?: Express.Multer.File[],
   ) {
     if (!files || files.length === 0) {
@@ -107,11 +111,11 @@ export class MenuItemsController {
     return this.service.addPhotos(restaurantId, id, user, files);
   }
 
-  @Delete(':id/photos/:photoId')
+  @Delete(':itemSlug/photos/:photoId')
   removePhoto(
     @CurrentUser() user: AuthenticatedUser,
-    @Param('restaurantId', ParseIntPipe) restaurantId: number,
-    @Param('id', ParseIntPipe) id: number,
+    @RestaurantIdFromSlug() restaurantId: number,
+    @ItemIdFromSlug() id: number,
     @Param('photoId', ParseIntPipe) photoId: number,
   ) {
     return this.service.removePhoto(restaurantId, id, photoId, user);
@@ -121,11 +125,11 @@ export class MenuItemsController {
   // ar_status (TripoGenerationService refuses unless it's "pending"), plus
   // a tight per-user throttle here as defense in depth (spec §7.4).
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
-  @Post(':id/generate-model')
+  @Post(':itemSlug/generate-model')
   generateModel(
     @CurrentUser() user: AuthenticatedUser,
-    @Param('restaurantId', ParseIntPipe) restaurantId: number,
-    @Param('id', ParseIntPipe) id: number,
+    @RestaurantIdFromSlug() restaurantId: number,
+    @ItemIdFromSlug() id: number,
   ) {
     return this.tripoGeneration.triggerGeneration(restaurantId, id, user);
   }
@@ -136,14 +140,14 @@ export class MenuItemsController {
   // expensive-work throttle as generate-model — USDZ conversion runs here
   // too (spec §7.4).
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
-  @Post(':id/model')
+  @Post(':itemSlug/model')
   @UseInterceptors(
     FileInterceptor('file', { limits: { fileSize: MAX_GLB_UPLOAD_BYTES } }),
   )
   async uploadModel(
     @CurrentUser() user: AuthenticatedUser,
-    @Param('restaurantId', ParseIntPipe) restaurantId: number,
-    @Param('id', ParseIntPipe) id: number,
+    @RestaurantIdFromSlug() restaurantId: number,
+    @ItemIdFromSlug() id: number,
     @UploadedFile() file?: Express.Multer.File,
   ) {
     if (!file) {

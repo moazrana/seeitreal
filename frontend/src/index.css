@@ -1,32 +1,13 @@
 /* Global styles for the authenticated dashboard (RestaurantsPage,
- * RestaurantDetailPage, AppShell, and shared components). Uses the same
- * design tokens as the marketing landing page and auth pages
- * (documents/seeitreal-design-spec.md §2; see also ./pages/landing/landing.module.css
- * and ./pages/auth/auth.module.css) so the whole app — marketing site,
- * signup/login, and dashboard — reads as one product instead of a jump
- * between a dark premium site and a plain light admin tool. Auth/landing
- * scope their copies of these tokens under a CSS Module root class so
- * they never leak here; this file is the dashboard's equivalent root. */
+ * RestaurantDetailPage, AppShell, and shared components). Colours come
+ * only from the semantic light/dark role tokens defined once in
+ * @ar-menu/shared (shared/src/theme.ts → dist/theme.css, imported in
+ * main.tsx; documents/USER-APP-theming.md §2) — never hardcode a colour
+ * here or in a component. The landing and auth pages read the same tokens,
+ * so the whole app reads as one product in both themes. This file only
+ * adds the non-colour tokens (type, radii). */
 
 :root {
-  --bg: #0a0b14;
-  --bg-elev: #12141f;
-  --bg-elev-2: #171a27;
-  --ink: #f4f5fb;
-  --muted: #9ba0b4;
-  --faint: #6a6f84;
-  --line: rgba(255, 255, 255, 0.08);
-  --line-strong: rgba(255, 255, 255, 0.16);
-  --blue: #4d7cff;
-  --violet: #8b5cf6;
-  --teal: #2dd4bf;
-  --grad: linear-gradient(105deg, #4d7cff, #8b5cf6 50%, #2dd4bf);
-  --danger: #ff6b6b;
-  --danger-bg: rgba(255, 107, 107, 0.1);
-  --danger-line: rgba(255, 107, 107, 0.35);
-  --warning: #f5a524;
-  --warning-bg: rgba(245, 165, 36, 0.1);
-  --warning-line: rgba(245, 165, 36, 0.35);
 
   --font-display:
     'Space Grotesk', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
@@ -35,8 +16,6 @@
   --radius-sm: 8px;
   --radius: 14px;
   --radius-lg: 20px;
-
-  color-scheme: dark;
 }
 
 * {
@@ -47,8 +26,26 @@ body {
   margin: 0;
   font-family: var(--font-body);
   background: var(--bg);
-  color: var(--ink);
+  color: var(--text);
   -webkit-font-smoothing: antialiased;
+}
+
+/* Smooth theme switch (documents/USER-APP-theming.md §4). Only applied for
+ * a moment while the user toggles (ThemeContext adds the class), so it never
+ * animates first paint or fights component hover transitions; disabled
+ * entirely under prefers-reduced-motion. */
+@media (prefers-reduced-motion: no-preference) {
+  html.theme-transition,
+  html.theme-transition *,
+  html.theme-transition *::before,
+  html.theme-transition *::after {
+    transition:
+      background-color 0.25s ease,
+      border-color 0.25s ease,
+      color 0.25s ease,
+      fill 0.25s ease,
+      stroke 0.25s ease !important;
+  }
 }
 
 h1,
@@ -61,17 +58,17 @@ h3 {
 }
 
 a {
-  color: var(--teal);
+  color: var(--accent-strong);
 }
 
 :focus-visible {
-  outline: 2px solid var(--teal);
+  outline: 2px solid var(--accent-strong);
   outline-offset: 2px;
   border-radius: 4px;
 }
 
 .grad-text {
-  background: var(--grad);
+  background: var(--grad-text);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -92,9 +89,9 @@ a {
   align-items: center;
   justify-content: space-between;
   padding: 0.85rem 1.5rem;
-  background: rgba(10, 11, 20, 0.85);
+  background: var(--header-bg);
   backdrop-filter: blur(10px);
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--border);
 }
 
 .app-logo {
@@ -104,7 +101,7 @@ a {
   font-family: var(--font-display);
   font-weight: 600;
   font-size: 1.1rem;
-  color: var(--ink);
+  color: var(--text);
   text-decoration: none;
 }
 
@@ -130,7 +127,7 @@ a {
 .page-loading {
   padding: 3rem;
   text-align: center;
-  color: var(--muted);
+  color: var(--text-muted);
 }
 
 /* Forms */
@@ -140,7 +137,7 @@ label {
   gap: 0.35rem;
   font-size: 0.9rem;
   font-weight: 500;
-  color: var(--muted);
+  color: var(--text-muted);
 }
 
 input,
@@ -149,10 +146,10 @@ textarea {
   font: inherit;
   font-family: var(--font-body);
   padding: 0.6rem 0.75rem;
-  border: 1px solid var(--line-strong);
+  border: 1px solid var(--border-strong);
   border-radius: 10px;
-  background: var(--bg-elev-2);
-  color: var(--ink);
+  background: var(--surface-2);
+  color: var(--text);
   transition:
     border-color 0.2s ease,
     box-shadow 0.2s ease;
@@ -164,15 +161,15 @@ textarea {
 
 input::placeholder,
 textarea::placeholder {
-  color: var(--faint);
+  color: var(--text-faint);
 }
 
 input:focus-visible,
 select:focus-visible,
 textarea:focus-visible {
   outline: none;
-  border-color: var(--teal);
-  box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.15);
+  border-color: var(--accent-strong);
+  box-shadow: 0 0 0 3px var(--focus-ring);
 }
 
 button {
@@ -183,7 +180,7 @@ button {
   border-radius: 999px;
   border: none;
   background: var(--grad);
-  color: #060712;
+  color: var(--on-grad);
   cursor: pointer;
   transition:
     transform 0.2s ease,
@@ -202,7 +199,7 @@ button:disabled {
 
 .link-button {
   background: none;
-  color: var(--teal);
+  color: var(--accent-strong);
   font-weight: 500;
   padding: 0.25rem 0;
   font-size: 0.9rem;
@@ -221,8 +218,8 @@ button:disabled {
 }
 
 .inline-form {
-  background: var(--bg-elev);
-  border: 1px solid var(--line);
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   padding: 1.4rem;
   margin-top: 1.5rem;
@@ -253,29 +250,29 @@ button:disabled {
 }
 
 .card-list-item {
-  background: var(--bg-elev);
-  border: 1px solid var(--line);
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 0.9rem 1.1rem;
   transition: border-color 0.2s ease;
 }
 
 .card-list-item:hover {
-  border-color: var(--line-strong);
+  border-color: var(--border-strong);
 }
 
 .card-list-item a {
   text-decoration: none;
-  color: var(--ink);
+  color: var(--text);
 }
 
 .empty-state {
-  color: var(--muted);
+  color: var(--text-muted);
   padding: 1rem 0;
 }
 
 .muted {
-  color: var(--muted);
+  color: var(--text-muted);
 }
 
 /* Categories */
@@ -289,8 +286,8 @@ button:disabled {
 }
 
 .chip {
-  background: var(--bg-elev-2);
-  border: 1px solid var(--line);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
   border-radius: 999px;
   padding: 0.3rem 0.5rem 0.3rem 0.85rem;
   font-size: 0.9rem;
@@ -301,7 +298,7 @@ button:disabled {
 
 .chip-remove {
   background: none;
-  color: var(--muted);
+  color: var(--text-muted);
   border-radius: 50%;
   width: 1.3rem;
   height: 1.3rem;
@@ -330,8 +327,8 @@ button:disabled {
 .item-card {
   display: flex;
   gap: 1rem;
-  background: var(--bg-elev);
-  border: 1px solid var(--line);
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 1rem;
 }
@@ -342,7 +339,7 @@ button:disabled {
   flex-shrink: 0;
   border-radius: var(--radius-sm);
   overflow: hidden;
-  background: var(--bg-elev-2);
+  background: var(--surface-2);
 }
 
 .item-card-photo img {
@@ -358,7 +355,7 @@ button:disabled {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--muted);
+  color: var(--text-muted);
   font-size: 0.75rem;
   text-align: center;
   padding: 0.5rem;
@@ -409,8 +406,8 @@ button:disabled {
 
 /* Photo capture guide (documents/3d-model-enhancement.md §4) */
 .photo-guide {
-  background: var(--bg-elev);
-  border: 1px solid var(--line);
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 0.75rem 1rem;
   margin-top: 0.75rem;
@@ -444,7 +441,7 @@ button:disabled {
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
-  color: var(--muted);
+  color: var(--text-muted);
   min-width: 220px;
 }
 
@@ -462,8 +459,8 @@ button:disabled {
   height: 64px;
   border-radius: var(--radius-sm);
   overflow: hidden;
-  background: var(--bg-elev-2);
-  border: 1px solid var(--line);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
 }
 
 .photo-thumb img {
@@ -482,8 +479,8 @@ button:disabled {
   line-height: 1;
   padding: 0;
   border-radius: 50%;
-  background: rgba(0, 0, 0, 0.65);
-  color: #fff;
+  background: var(--overlay);
+  color: var(--on-overlay);
   font-size: 0.8rem;
   transform: none;
 }
@@ -508,8 +505,8 @@ button:disabled {
   width: 100%;
 }
 
-/* Status badges — translucent tinted chips rather than light-mode pastel
- * blocks, so they read correctly against the dark surfaces above. */
+/* Status badges — translucent tinted chips; the text colour is per-theme
+ * so it keeps AA contrast on both dark and light surfaces. */
 .status-badge {
   display: inline-block;
   font-size: 0.75rem;
@@ -522,27 +519,27 @@ button:disabled {
 }
 
 .status-pending {
-  background: var(--bg-elev-2);
-  color: var(--muted);
-  border-color: var(--line);
+  background: var(--surface-2);
+  color: var(--text-muted);
+  border-color: var(--border);
 }
 
 .status-generating {
-  background: rgba(139, 92, 246, 0.14);
-  color: #c4b5fd;
-  border-color: rgba(139, 92, 246, 0.3);
+  background: var(--tint-violet-bg);
+  color: var(--tint-violet-text);
+  border-color: var(--tint-violet-line);
 }
 
 .status-qa {
-  background: rgba(77, 124, 255, 0.14);
-  color: #a8c0ff;
-  border-color: rgba(77, 124, 255, 0.3);
+  background: var(--tint-blue-bg);
+  color: var(--tint-blue-text);
+  border-color: var(--tint-blue-line);
 }
 
 .status-live {
-  background: rgba(45, 212, 191, 0.14);
-  color: #7fe8d8;
-  border-color: rgba(45, 212, 191, 0.3);
+  background: var(--tint-teal-bg);
+  color: var(--tint-teal-text);
+  border-color: var(--tint-teal-line);
 }
 
 /* Error banner */
@@ -586,7 +583,7 @@ button:disabled {
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.65);
+  background: var(--overlay);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -595,8 +592,8 @@ button:disabled {
 }
 
 .modal {
-  background: var(--bg-elev);
-  border: 1px solid var(--line);
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   padding: 1.25rem;
   max-width: 340px;
@@ -625,10 +622,10 @@ button:disabled {
   height: auto;
   /* QR codes need an opaque light background to stay scannable — kept
    * white regardless of theme, matted so it doesn't collide with the
-   * dark modal behind it. */
-  background: #fff;
+   * modal behind it. */
+  background: var(--qr-bg);
   padding: 12px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--border);
   border-radius: var(--radius-sm);
 }
 

@@ -17,29 +17,31 @@ export interface CreateItemInput {
 }
 
 export const menuApi = {
-  listCategories: (restaurantId: number) => api.get<MenuCategory[]>(`/restaurants/${restaurantId}/categories`),
-  createCategory: (restaurantId: number, input: CreateCategoryInput) =>
-    api.post<MenuCategory>(`/restaurants/${restaurantId}/categories`, input),
-  deleteCategory: (restaurantId: number, categoryId: number) =>
-    api.delete<void>(`/restaurants/${restaurantId}/categories/${categoryId}`),
+  listCategories: (restaurantSlug: string) =>
+    api.get<MenuCategory[]>(`/restaurants/${restaurantSlug}/categories`),
+  createCategory: (restaurantSlug: string, input: CreateCategoryInput) =>
+    api.post<MenuCategory>(`/restaurants/${restaurantSlug}/categories`, input),
+  deleteCategory: (restaurantSlug: string, categoryId: number) =>
+    api.delete<void>(`/restaurants/${restaurantSlug}/categories/${categoryId}`),
 
-  listItems: (restaurantId: number) => api.get<MenuItem[]>(`/restaurants/${restaurantId}/items`),
-  createItem: (restaurantId: number, input: CreateItemInput) =>
-    api.post<MenuItem>(`/restaurants/${restaurantId}/items`, input),
-  updateItem: (restaurantId: number, itemId: number, input: Partial<CreateItemInput>) =>
-    api.patch<MenuItem>(`/restaurants/${restaurantId}/items/${itemId}`, input),
-  deleteItem: (restaurantId: number, itemId: number) =>
-    api.delete<void>(`/restaurants/${restaurantId}/items/${itemId}`),
+  listItems: (restaurantSlug: string) =>
+    api.get<MenuItem[]>(`/restaurants/${restaurantSlug}/items`),
+  createItem: (restaurantSlug: string, input: CreateItemInput) =>
+    api.post<MenuItem>(`/restaurants/${restaurantSlug}/items`, input),
+  updateItem: (restaurantSlug: string, itemSlug: string, input: Partial<CreateItemInput>) =>
+    api.patch<MenuItem>(`/restaurants/${restaurantSlug}/items/${itemSlug}`, input),
+  deleteItem: (restaurantSlug: string, itemSlug: string) =>
+    api.delete<void>(`/restaurants/${restaurantSlug}/items/${itemSlug}`),
   // Up to 5 input photos per dish, driving Tripo multiview generation
   // (documents/3d-model-enhancement.md §1).
-  uploadPhotos: (restaurantId: number, itemId: number, files: File[]) =>
-    api.uploadMany<MenuItem>(`/restaurants/${restaurantId}/items/${itemId}/photos`, files),
-  deletePhoto: (restaurantId: number, itemId: number, photoId: number) =>
-    api.delete<MenuItem>(`/restaurants/${restaurantId}/items/${itemId}/photos/${photoId}`),
-  generateModel: (restaurantId: number, itemId: number) =>
-    api.post<MenuItem>(`/restaurants/${restaurantId}/items/${itemId}/generate-model`),
+  uploadPhotos: (restaurantSlug: string, itemSlug: string, files: File[]) =>
+    api.uploadMany<MenuItem>(`/restaurants/${restaurantSlug}/items/${itemSlug}/photos`, files),
+  deletePhoto: (restaurantSlug: string, itemSlug: string, photoId: number) =>
+    api.delete<MenuItem>(`/restaurants/${restaurantSlug}/items/${itemSlug}/photos/${photoId}`),
+  generateModel: (restaurantSlug: string, itemSlug: string) =>
+    api.post<MenuItem>(`/restaurants/${restaurantSlug}/items/${itemSlug}/generate-model`),
   // Hero-dish bypass: upload an already-produced GLB instead of generating
   // one via Tripo (documents/3d-model-enhancement.md §5).
-  uploadModel: (restaurantId: number, itemId: number, file: File) =>
-    api.upload<MenuItem>(`/restaurants/${restaurantId}/items/${itemId}/model`, file),
+  uploadModel: (restaurantSlug: string, itemSlug: string, file: File) =>
+    api.upload<MenuItem>(`/restaurants/${restaurantSlug}/items/${itemSlug}/model`, file),
 };

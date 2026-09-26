@@ -104,6 +104,7 @@ describe('Root App (e2e)', () => {
     return {
       accessToken: res.body.accessToken as string,
       restaurantId: res.body.restaurant.id as number,
+      restaurantSlug: res.body.restaurant.slug as string,
     };
   }
 
@@ -143,10 +144,10 @@ describe('Root App (e2e)', () => {
     const rootEmail = await seedRootAdmin();
     const { accessToken: rootAccess } = await loginAndEnroll(rootEmail);
 
-    const { accessToken: ownerAccess, restaurantId } = await signupAndLogin();
+    const { accessToken: ownerAccess, restaurantSlug } = await signupAndLogin();
 
     const itemRes = await request(app.getHttpServer())
-      .post(`/api/restaurants/${restaurantId}/items`)
+      .post(`/api/restaurants/${restaurantSlug}/items`)
       .set('Authorization', `Bearer ${ownerAccess}`)
       .send({ name: 'Suspend Test Dish' })
       .expect(201);
@@ -160,14 +161,14 @@ describe('Root App (e2e)', () => {
     expect(dashRes.body.restaurants.total).toBeGreaterThanOrEqual(1);
 
     await request(app.getHttpServer())
-      .post(`/api/root/restaurants/${restaurantId}/suspend`)
+      .post(`/api/root/restaurants/${restaurantSlug}/suspend`)
       .set('Authorization', `Bearer ${rootAccess}`)
       .send({ reason: 'e2e test suspension' })
       .expect(200);
 
     // Owner is blocked (403, not 404 — they still own it).
     await request(app.getHttpServer())
-      .get(`/api/restaurants/${restaurantId}`)
+      .get(`/api/restaurants/${restaurantSlug}`)
       .set('Authorization', `Bearer ${ownerAccess}`)
       .expect(403);
 
@@ -175,13 +176,13 @@ describe('Root App (e2e)', () => {
     await request(app.getHttpServer()).get(`/api/m/${publicSlug}`).expect(404);
 
     await request(app.getHttpServer())
-      .post(`/api/root/restaurants/${restaurantId}/reactivate`)
+      .post(`/api/root/restaurants/${restaurantSlug}/reactivate`)
       .set('Authorization', `Bearer ${rootAccess}`)
       .expect(200);
 
     // Both recover.
     await request(app.getHttpServer())
-      .get(`/api/restaurants/${restaurantId}`)
+      .get(`/api/restaurants/${restaurantSlug}`)
       .set('Authorization', `Bearer ${ownerAccess}`)
       .expect(200);
     await request(app.getHttpServer()).get(`/api/m/${publicSlug}`).expect(200);
@@ -196,10 +197,10 @@ describe('Root App (e2e)', () => {
       .set('Authorization', `Bearer ${accessToken}`)
       .expect(200);
 
-    const { restaurantId: rbacRestaurantId } = await signupAndLogin();
+    const { restaurantSlug: rbacRestaurantSlug } = await signupAndLogin();
 
     await request(app.getHttpServer())
-      .post(`/api/root/restaurants/${rbacRestaurantId}/suspend`)
+      .post(`/api/root/restaurants/${rbacRestaurantSlug}/suspend`)
       .set('Authorization', `Bearer ${accessToken}`)
       .send({ reason: 'should be forbidden' })
       .expect(403);
@@ -208,10 +209,10 @@ describe('Root App (e2e)', () => {
   it('moves model QA here: approve requires both model files, and reject sends the item back to the owner', async () => {
     const rootEmail = await seedRootAdmin();
     const { accessToken: rootAccess } = await loginAndEnroll(rootEmail);
-    const { accessToken: ownerAccess, restaurantId } = await signupAndLogin();
+    const { accessToken: ownerAccess, restaurantSlug } = await signupAndLogin();
 
     const itemRes = await request(app.getHttpServer())
-      .post(`/api/restaurants/${restaurantId}/items`)
+      .post(`/api/restaurants/${restaurantSlug}/items`)
       .set('Authorization', `Bearer ${ownerAccess}`)
       .send({ name: 'Root QA Dish' })
       .expect(201);

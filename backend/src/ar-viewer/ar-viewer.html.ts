@@ -1,3 +1,5 @@
+import { buildThemeCss, modelViewerExposure } from '@ar-menu/shared';
+import type { Theme } from '@ar-menu/shared';
 import { escapeHtml } from '../common/utils/html-escape.util';
 
 interface ViewerItem {
@@ -16,21 +18,42 @@ interface ViewerItem {
   lengthMm: number | null;
 }
 
+/** Public path of the tiny same-origin script that swaps <model-viewer>
+ * exposure/environment to match the diner's colour scheme (served by
+ * ArViewerController; see ar-viewer.theme-script.ts). */
+export const AR_VIEWER_THEME_SCRIPT_PATH = '/api/static/ar-viewer-theme.js';
+
+/** Per-theme environment images for <model-viewer> (documents/
+ * USER-APP-theming.md §5). */
+export type ViewerEnvironmentImages = Record<Theme, string>;
+
+const DEFAULT_ENVIRONMENT_IMAGES: ViewerEnvironmentImages = {
+  dark: 'neutral',
+  light: 'neutral',
+};
+
+// Diners never see a toggle, so the page follows their phone's own
+// prefers-color-scheme (documents/USER-APP-theming.md §5) using the same
+// shared tokens as the dashboard. Generated once at module load from
+// constant tokens — no request data ever reaches this <style> block.
+const THEME_CSS = buildThemeCss({ allowOverride: false });
+
 const PAGE_HEAD = (title: string) => `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark light">
 <title>${title}</title>
 <meta name="robots" content="noindex">
 <style>
-  :root { color-scheme: light; }
+${THEME_CSS}
   * { box-sizing: border-box; }
   body {
     margin: 0;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    background: #f7f7f8;
-    color: #1c1c1f;
+    background: var(--bg);
+    color: var(--text);
     min-height: 100vh;
     display: flex;
     flex-direction: column;
@@ -45,14 +68,21 @@ const PAGE_HEAD = (title: string) => `<!doctype html>
     gap: 0.75rem;
     flex: 1;
   }
-  .restaurant { color: #6b6b74; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.04em; }
+  .restaurant { color: var(--text-muted); font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.04em; }
   h1 { margin: 0; font-size: 1.5rem; }
-  .description { color: #444; line-height: 1.5; }
-  model-viewer { width: 100%; height: 60vh; background: #eee; border-radius: 12px; }
-  .photo { width: 100%; border-radius: 12px; aspect-ratio: 4 / 3; object-fit: cover; background: #eee; }
+  .description { color: var(--text-muted); line-height: 1.5; }
+  model-viewer {
+    width: 100%;
+    height: 60vh;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+  }
+  .photo { width: 100%; border-radius: 12px; aspect-ratio: 4 / 3; object-fit: cover; background: var(--surface-2); }
   .notice {
-    background: #eff6ff;
-    color: #1e40af;
+    background: var(--tint-blue-bg);
+    color: var(--tint-blue-text);
+    border: 1px solid var(--tint-blue-line);
     border-radius: 8px;
     padding: 0.75rem 1rem;
     font-size: 0.9rem;
@@ -61,11 +91,12 @@ const PAGE_HEAD = (title: string) => `<!doctype html>
     width: 100%;
     aspect-ratio: 4 / 3;
     border-radius: 12px;
-    background: #eee;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
     display: flex;
     align-items: center;
     justify-content: center;
-    color: #999;
+    color: var(--text-muted);
     font-size: 0.9rem;
   }
   .dimensions {
@@ -73,8 +104,9 @@ const PAGE_HEAD = (title: string) => `<!doctype html>
     align-self: flex-start;
     align-items: center;
     gap: 0.35rem;
-    background: #ecfdf5;
-    color: #065f46;
+    background: var(--tint-teal-bg);
+    color: var(--tint-teal-text);
+    border: 1px solid var(--tint-teal-line);
     border-radius: 999px;
     padding: 0.3rem 0.75rem;
     font-size: 0.8rem;
@@ -98,10 +130,11 @@ export function renderItemPage(
   item: ViewerItem,
   restaurantName: string,
   // Image-based lighting/rendering config (documents/3d-model-enhancement.md
-  // §3) — "neutral" (model-viewer's built-in studio IBL) is the safe
-  // default; a real warm kitchen/restaurant HDR can be configured via
-  // AR_ENVIRONMENT_IMAGE_URL without a code change.
-  environmentImageUrl: string = 'neutral',
+  // §3), per theme (documents/USER-APP-theming.md §5) — "neutral"
+  // (model-viewer's built-in studio IBL) is the safe default; real HDRs can
+  // be configured via AR_ENVIRONMENT_IMAGE_URL / AR_ENVIRONMENT_IMAGE_URL_LIGHT
+  // without a code change.
+  environmentImages: ViewerEnvironmentImages = DEFAULT_ENVIRONMENT_IMAGES,
 ): string {
   const name = escapeHtml(item.name);
   const restaurant = escapeHtml(restaurantName);
@@ -122,14 +155,20 @@ export function renderItemPage(
   camera-controls
   auto-rotate
   ${item.previewImageUrl ? `poster="${escapeHtml(item.previewImageUrl)}"` : ''}
-  environment-image="${escapeHtml(environmentImageUrl)}"
-  exposure="1.0"
+  environment-image="${escapeHtml(environmentImages.dark)}"
+  exposure="${modelViewerExposure.dark}"
+  data-theme-aware
+  data-environment-image-dark="${escapeHtml(environmentImages.dark)}"
+  data-environment-image-light="${escapeHtml(environmentImages.light)}"
+  data-exposure-dark="${modelViewerExposure.dark}"
+  data-exposure-light="${modelViewerExposure.light}"
   tone-mapping="neutral"
   shadow-intensity="1"
   shadow-softness="1"
 >
   <button slot="ar-button" class="ar-button">View in your space</button>
 </model-viewer>
+<script src="${AR_VIEWER_THEME_SCRIPT_PATH}"></script>
 ${renderDimensionsCaption(item)}`
     : item.photoUrl
       ? `<img class="photo" src="${escapeHtml(item.photoUrl)}" alt="${name}">

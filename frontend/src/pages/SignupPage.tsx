@@ -38,7 +38,7 @@ export function SignupPage() {
         businessName,
         address,
       });
-      navigate(`/restaurants/${restaurant.id}`);
+      navigate(`/restaurants/${restaurant.slug}`);
     } catch (err) {
       setError(errorMessage(err));
     } finally {

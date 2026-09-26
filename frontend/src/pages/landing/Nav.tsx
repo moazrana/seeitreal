@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
+import { ThemeToggle } from '../../components/ThemeToggle';
 import styles from './landing.module.css';
 import { useScrolled } from './useScrolled';
 
@@ -40,6 +41,7 @@ export function Nav() {
         </nav>
 
         <div className={styles.navCta}>
+          <ThemeToggle />
           <Link to="/signup" className={`${styles.btn} ${styles.btnPrimary}`}>
             Start free
           </Link>

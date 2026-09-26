@@ -3,7 +3,13 @@ import type { FormEvent } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { billingApi } from '../api/billing';
 import { restaurantsApi } from '../api/restaurants';
-import type { Invoice, PromoPreview, Restaurant, Subscription, SubscriptionPackage } from '../api/types';
+import type {
+  Invoice,
+  PromoPreview,
+  Restaurant,
+  Subscription,
+  SubscriptionPackage,
+} from '../api/types';
 import { AppShell } from '../components/AppShell';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { errorMessage } from '../lib/errors';
@@ -22,7 +28,11 @@ function formatMinorUnits(amount: number, currency: 'PKR' | 'USD'): string {
 }
 
 function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+  return new Date(iso).toLocaleDateString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  });
 }
 
 function daysUntil(iso: string): number {
@@ -30,8 +40,7 @@ function daysUntil(iso: string): number {
 }
 
 export function BillingPage() {
-  const { id } = useParams<{ id: string }>();
-  const restaurantId = Number(id);
+  const { slug: restaurantSlug = '' } = useParams<{ slug: string }>();
   const [searchParams] = useSearchParams();
 
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
@@ -48,9 +57,9 @@ export function BillingPage() {
 
   function loadAll() {
     Promise.all([
-      restaurantsApi.get(restaurantId),
-      billingApi.getSubscription(restaurantId),
-      billingApi.listInvoices(restaurantId),
+      restaurantsApi.get(restaurantSlug),
+      billingApi.getSubscription(restaurantSlug),
+      billingApi.listInvoices(restaurantSlug),
       billingApi.listPackages(),
       billingApi.defaultCountry(),
     ])
@@ -64,14 +73,17 @@ export function BillingPage() {
       .catch((err: unknown) => setError(errorMessage(err)));
   }
 
-  useEffect(loadAll, [restaurantId]);
+  useEffect(loadAll, [restaurantSlug]);
 
   async function handleValidatePromo() {
     setPromoError(null);
     setPromoPreview(null);
     if (!promoCode.trim()) return;
     try {
-      const preview = await billingApi.validatePromo(promoCode.trim().toUpperCase(), 'subscription');
+      const preview = await billingApi.validatePromo(
+        promoCode.trim().toUpperCase(),
+        'subscription',
+      );
       setPromoPreview(preview);
     } catch (err) {
       setPromoError(errorMessage(err));
@@ -83,7 +95,7 @@ export function BillingPage() {
     setError(null);
     setBusy(true);
     try {
-      const { checkoutUrl } = await billingApi.checkout(restaurantId, {
+      const { checkoutUrl } = await billingApi.checkout(restaurantSlug, {
         packageId,
         billingCountry,
         promoCode: promoPreview ? promoCode.trim().toUpperCase() : undefined,
@@ -99,7 +111,7 @@ export function BillingPage() {
     setError(null);
     setBusy(true);
     try {
-      await billingApi.changePackage(restaurantId, packageId);
+      await billingApi.changePackage(restaurantSlug, packageId);
       loadAll();
     } catch (err) {
       setError(errorMessage(err));
@@ -112,7 +124,7 @@ export function BillingPage() {
     setError(null);
     setBusy(true);
     try {
-      await billingApi.cancel(restaurantId);
+      await billingApi.cancel(restaurantSlug);
       loadAll();
     } catch (err) {
       setError(errorMessage(err));
@@ -135,7 +147,7 @@ export function BillingPage() {
 
       <div className={s.hero}>
         <div className={s.heroGlow} aria-hidden="true" />
-        <Link to={`/restaurants/${restaurantId}`} className={s.backLink}>
+        <Link to={`/restaurants/${restaurantSlug}`} className={s.backLink}>
           ← {restaurant?.name ?? 'Restaurant'}
         </Link>
         <span className={s.eyebrow}>
@@ -146,8 +158,8 @@ export function BillingPage() {
 
         {checkoutNotice === 'success' && (
           <p className={s.checkoutNotice}>
-            Thanks — we're confirming your payment. This page updates automatically once the
-            gateway notifies us.
+            Thanks — we're confirming your payment. This page updates automatically once the gateway
+            notifies us.
           </p>
         )}
 
@@ -159,8 +171,8 @@ export function BillingPage() {
         )}
         {subscription && subscription.status === 'expired' && (
           <div className="status-banner banner-expired">
-            <strong>Your menus are offline.</strong> Reactivate below to bring your dish links
-            back online immediately — nothing was deleted.
+            <strong>Your menus are offline.</strong> Reactivate below to bring your dish links back
+            online immediately — nothing was deleted.
           </div>
         )}
 
@@ -174,7 +186,9 @@ export function BillingPage() {
               <span className={s.currentPlanLabel}>Price</span>
               <span className={s.currentPlanValue}>
                 {formatMinorUnits(
-                  currency === 'PKR' ? subscription.package.pricePkr : subscription.package.priceUsd,
+                  currency === 'PKR'
+                    ? subscription.package.pricePkr
+                    : subscription.package.priceUsd,
                   currency,
                 )}{' '}
                 / {subscription.package.interval}
@@ -182,10 +196,17 @@ export function BillingPage() {
             </div>
             <div>
               <span className={s.currentPlanLabel}>Renews</span>
-              <span className={s.currentPlanValue}>{formatDate(subscription.currentPeriodEnd)}</span>
+              <span className={s.currentPlanValue}>
+                {formatDate(subscription.currentPeriodEnd)}
+              </span>
             </div>
             {subscription.status === 'active' && (
-              <button type="button" className={s.cancelLink} disabled={busy} onClick={() => void handleCancel()}>
+              <button
+                type="button"
+                className={s.cancelLink}
+                disabled={busy}
+                onClick={() => void handleCancel()}
+              >
                 Cancel subscription
               </button>
             )}
@@ -197,7 +218,9 @@ export function BillingPage() {
 
       <section className={s.section}>
         <div className={s.sectionHead}>
-          <h2>{subscription && subscription.status !== 'canceled' ? 'Change plan' : 'Choose a plan'}</h2>
+          <h2>
+            {subscription && subscription.status !== 'canceled' ? 'Change plan' : 'Choose a plan'}
+          </h2>
         </div>
 
         {!subscription || subscription.status === 'canceled' ? (
@@ -224,7 +247,11 @@ export function BillingPage() {
                   placeholder="SAVE10"
                 />
               </label>
-              <button type="button" className={s.actionBtn} onClick={() => void handleValidatePromo()}>
+              <button
+                type="button"
+                className={s.actionBtn}
+                onClick={() => void handleValidatePromo()}
+              >
                 Apply
               </button>
             </div>
@@ -242,7 +269,8 @@ export function BillingPage() {
 
         <ul className={s.grid}>
           {packages.map((pkg) => {
-            const isCurrent = subscription?.status !== 'canceled' && subscription?.packageId === pkg.id;
+            const isCurrent =
+              subscription?.status !== 'canceled' && subscription?.packageId === pkg.id;
             return (
               <li key={pkg.id} className={s.planCard} data-current={isCurrent || undefined}>
                 <h3 className={s.planName}>{pkg.name}</h3>
@@ -250,7 +278,9 @@ export function BillingPage() {
                   {formatMinorUnits(currency === 'PKR' ? pkg.pricePkr : pkg.priceUsd, currency)}
                   <span className={s.planInterval}>/{pkg.interval}</span>
                 </p>
-                <p className={s.planLimit}>{pkg.maxItems ? `Up to ${pkg.maxItems} items` : 'Unlimited items'}</p>
+                <p className={s.planLimit}>
+                  {pkg.maxItems ? `Up to ${pkg.maxItems} items` : 'Unlimited items'}
+                </p>
                 {isCurrent ? (
                   <span className={s.planCurrentBadge}>Current plan</span>
                 ) : subscription && subscription.status !== 'canceled' ? (
@@ -264,7 +294,11 @@ export function BillingPage() {
                   </button>
                 ) : (
                   <form onSubmit={(e) => void handleSubscribe(pkg.id, e)}>
-                    <button type="submit" className={`${s.actionBtn} ${s.actionBtnPrimary}`} disabled={busy}>
+                    <button
+                      type="submit"
+                      className={`${s.actionBtn} ${s.actionBtnPrimary}`}
+                      disabled={busy}
+                    >
                       Subscribe
                     </button>
                   </form>

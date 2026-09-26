@@ -74,8 +74,8 @@ export class SubscriptionRenewalCron {
           interval:
             subscription.package.interval === 'yearly' ? 'yearly' : 'monthly',
           existingGatewayCustomerId: subscription.gatewayCustomerId,
-          successUrl: `${frontendBaseUrl}/restaurants/${subscription.restaurantId}/billing?renewal=success`,
-          cancelUrl: `${frontendBaseUrl}/restaurants/${subscription.restaurantId}/billing?renewal=due`,
+          successUrl: `${frontendBaseUrl}/restaurants/${subscription.restaurant.slug}/billing?renewal=success`,
+          cancelUrl: `${frontendBaseUrl}/restaurants/${subscription.restaurant.slug}/billing?renewal=due`,
         });
         await this.notifications.sendRenewalDue(subscription.restaurantId);
         count++;

@@ -37,7 +37,7 @@ describe('Uploads (e2e)', () => {
   });
 
   // Signup creates the owner's one restaurant in the same request (one
-  // restaurant per account), so tests use that restaurantId directly
+  // restaurant per account), so tests use that restaurantSlug directly
   // rather than a separate POST /api/restaurants, which now 409s for an
   // owner who already has one.
   async function signupAndLogin(label: string) {
@@ -55,21 +55,21 @@ describe('Uploads (e2e)', () => {
     return {
       email,
       accessToken: res.body.accessToken as string,
-      restaurantId: res.body.restaurant.id as number,
+      restaurantSlug: res.body.restaurant.slug as string,
     };
   }
 
   async function createItem(
     accessToken: string,
-    restaurantId: number,
+    restaurantSlug: string,
     label: string,
   ) {
     const itemRes = await request(app.getHttpServer())
-      .post(`/api/restaurants/${restaurantId}/items`)
+      .post(`/api/restaurants/${restaurantSlug}/items`)
       .set('Authorization', `Bearer ${accessToken}`)
       .send({ name: `${label} Dish` })
       .expect(201);
-    return { itemId: itemRes.body.id as number };
+    return { itemSlug: itemRes.body.publicSlug as string };
   }
 
   async function makeJpeg(color: { r: number; g: number; b: number }) {
@@ -81,13 +81,17 @@ describe('Uploads (e2e)', () => {
   }
 
   it('uploads a real photo, validates it, stores it, and serves it back read-only', async () => {
-    const { accessToken, restaurantId } = await signupAndLogin('PhotoTest');
-    const { itemId } = await createItem(accessToken, restaurantId, 'PhotoTest');
+    const { accessToken, restaurantSlug } = await signupAndLogin('PhotoTest');
+    const { itemSlug } = await createItem(
+      accessToken,
+      restaurantSlug,
+      'PhotoTest',
+    );
 
     const jpegBuffer = await makeJpeg({ r: 10, g: 200, b: 30 });
 
     const uploadRes = await request(app.getHttpServer())
-      .post(`/api/restaurants/${restaurantId}/items/${itemId}/photos`)
+      .post(`/api/restaurants/${restaurantSlug}/items/${itemSlug}/photos`)
       .set('Authorization', `Bearer ${accessToken}`)
       .attach('files', jpegBuffer, {
         filename: 'dish.jpg',
@@ -113,11 +117,11 @@ describe('Uploads (e2e)', () => {
   });
 
   it('uploads multiple photos in one request, keeping order, and lets one be removed', async () => {
-    const { accessToken, restaurantId } =
+    const { accessToken, restaurantSlug } =
       await signupAndLogin('MultiPhotoTest');
-    const { itemId } = await createItem(
+    const { itemSlug } = await createItem(
       accessToken,
-      restaurantId,
+      restaurantSlug,
       'MultiPhotoTest',
     );
 
@@ -125,7 +129,7 @@ describe('Uploads (e2e)', () => {
     const second = await makeJpeg({ r: 0, g: 200, b: 0 });
 
     const uploadRes = await request(app.getHttpServer())
-      .post(`/api/restaurants/${restaurantId}/items/${itemId}/photos`)
+      .post(`/api/restaurants/${restaurantSlug}/items/${itemSlug}/photos`)
       .set('Authorization', `Bearer ${accessToken}`)
       .attach('files', first, { filename: 'a.jpg', contentType: 'image/jpeg' })
       .attach('files', second, { filename: 'b.jpg', contentType: 'image/jpeg' })
@@ -141,7 +145,7 @@ describe('Uploads (e2e)', () => {
 
     const removeRes = await request(app.getHttpServer())
       .delete(
-        `/api/restaurants/${restaurantId}/items/${itemId}/photos/${p0.id}`,
+        `/api/restaurants/${restaurantSlug}/items/${itemSlug}/photos/${p0.id}`,
       )
       .set('Authorization', `Bearer ${accessToken}`)
       .expect(200);
@@ -154,16 +158,16 @@ describe('Uploads (e2e)', () => {
   });
 
   it('rejects a further upload once an item already has 5 photos', async () => {
-    const { accessToken, restaurantId } =
+    const { accessToken, restaurantSlug } =
       await signupAndLogin('TooManyPhotosTest');
-    const { itemId } = await createItem(
+    const { itemSlug } = await createItem(
       accessToken,
-      restaurantId,
+      restaurantSlug,
       'TooManyPhotosTest',
     );
 
     let req = request(app.getHttpServer())
-      .post(`/api/restaurants/${restaurantId}/items/${itemId}/photos`)
+      .post(`/api/restaurants/${restaurantSlug}/items/${itemSlug}/photos`)
       .set('Authorization', `Bearer ${accessToken}`);
     for (let n = 0; n < 5; n++) {
       const buf = await makeJpeg({ r: n * 10, g: 0, b: 0 });
@@ -176,7 +180,7 @@ describe('Uploads (e2e)', () => {
 
     const extra = await makeJpeg({ r: 1, g: 1, b: 1 });
     await request(app.getHttpServer())
-      .post(`/api/restaurants/${restaurantId}/items/${itemId}/photos`)
+      .post(`/api/restaurants/${restaurantSlug}/items/${itemSlug}/photos`)
       .set('Authorization', `Bearer ${accessToken}`)
       .attach('files', extra, {
         filename: 'extra.jpg',
@@ -186,17 +190,17 @@ describe('Uploads (e2e)', () => {
   });
 
   it("rejects a non-image upload, and never touches another owner's item", async () => {
-    const { accessToken, restaurantId } = await signupAndLogin('RejectTest');
+    const { accessToken, restaurantSlug } = await signupAndLogin('RejectTest');
     const { accessToken: intruderToken } =
       await signupAndLogin('RejectTestIntruder');
-    const { itemId } = await createItem(
+    const { itemSlug } = await createItem(
       accessToken,
-      restaurantId,
+      restaurantSlug,
       'RejectTest',
     );
 
     await request(app.getHttpServer())
-      .post(`/api/restaurants/${restaurantId}/items/${itemId}/photos`)
+      .post(`/api/restaurants/${restaurantSlug}/items/${itemSlug}/photos`)
       .set('Authorization', `Bearer ${accessToken}`)
       .attach('files', Buffer.from('not an image'), {
         filename: 'fake.jpg',
@@ -205,7 +209,7 @@ describe('Uploads (e2e)', () => {
       .expect(400);
 
     await request(app.getHttpServer())
-      .post(`/api/restaurants/${restaurantId}/items/${itemId}/photos`)
+      .post(`/api/restaurants/${restaurantSlug}/items/${itemSlug}/photos`)
       .set('Authorization', `Bearer ${intruderToken}`)
       .attach('files', Buffer.from('not an image'), {
         filename: 'fake.jpg',
@@ -215,17 +219,18 @@ describe('Uploads (e2e)', () => {
   });
 
   it('rejects a manual GLB upload that is not a genuine GLB, and requires widthMm first', async () => {
-    const { accessToken, restaurantId } = await signupAndLogin('ManualGlbTest');
-    const { itemId } = await createItem(
+    const { accessToken, restaurantSlug } =
+      await signupAndLogin('ManualGlbTest');
+    const { itemSlug } = await createItem(
       accessToken,
-      restaurantId,
+      restaurantSlug,
       'ManualGlbTest',
     );
 
     // No widthMm set yet — the hero-dish bypass requires it, same as
     // triggerGeneration (documents/3d-model-enhancement.md §5).
     await request(app.getHttpServer())
-      .post(`/api/restaurants/${restaurantId}/items/${itemId}/model`)
+      .post(`/api/restaurants/${restaurantSlug}/items/${itemSlug}/model`)
       .set('Authorization', `Bearer ${accessToken}`)
       .attach('file', Buffer.from('not a glb'), {
         filename: 'model.glb',
@@ -234,13 +239,13 @@ describe('Uploads (e2e)', () => {
       .expect(400);
 
     await request(app.getHttpServer())
-      .patch(`/api/restaurants/${restaurantId}/items/${itemId}`)
+      .patch(`/api/restaurants/${restaurantSlug}/items/${itemSlug}`)
       .set('Authorization', `Bearer ${accessToken}`)
       .send({ widthMm: 200 })
       .expect(200);
 
     await request(app.getHttpServer())
-      .post(`/api/restaurants/${restaurantId}/items/${itemId}/model`)
+      .post(`/api/restaurants/${restaurantSlug}/items/${itemSlug}/model`)
       .set('Authorization', `Bearer ${accessToken}`)
       .attach('file', Buffer.from('still not a glb'), {
         filename: 'model.glb',

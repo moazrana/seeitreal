@@ -167,8 +167,8 @@ export class PaymentsService {
         pkg.interval === SubscriptionInterval.yearly ? 'yearly' : 'monthly',
       existingGatewayCustomerId:
         existing?.gateway === gateway ? existing.gatewayCustomerId : undefined,
-      successUrl: `${frontendBaseUrl}/restaurants/${restaurantId}/billing?checkout=success`,
-      cancelUrl: `${frontendBaseUrl}/restaurants/${restaurantId}/billing?checkout=cancelled`,
+      successUrl: `${frontendBaseUrl}/restaurants/${restaurant.slug}/billing?checkout=success`,
+      cancelUrl: `${frontendBaseUrl}/restaurants/${restaurant.slug}/billing?checkout=cancelled`,
     });
     return { checkoutUrl };
   }

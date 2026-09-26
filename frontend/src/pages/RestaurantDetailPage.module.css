@@ -10,9 +10,9 @@
 .hero {
   position: relative;
   overflow: clip;
-  border: 1px solid var(--line);
+  border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  background: var(--bg-elev);
+  background: var(--surface);
   padding: 1.75rem 1.75rem 1.5rem;
   margin-bottom: 2.5rem;
 }
@@ -43,12 +43,12 @@
   align-items: center;
   gap: 0.35rem;
   font-size: 0.85rem;
-  color: var(--muted);
+  color: var(--text-muted);
   text-decoration: none;
 }
 
 .backLink:hover {
-  color: var(--ink);
+  color: var(--text);
 }
 
 .bannerSpacing {
@@ -70,9 +70,9 @@
   align-items: center;
   gap: 0.4rem;
   font-size: 0.75rem;
-  color: var(--muted);
-  border: 1px solid var(--line);
-  background: var(--bg-elev-2);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
   padding: 0.25rem 0.65rem;
   border-radius: 999px;
   margin-bottom: 0.75rem;
@@ -92,7 +92,7 @@
 
 .heroSlug {
   margin: 0.35rem 0 0;
-  color: var(--faint);
+  color: var(--text-faint);
   font-size: 0.9rem;
 }
 
@@ -105,8 +105,8 @@
 .statCard {
   min-width: 92px;
   text-align: center;
-  background: var(--bg-elev-2);
-  border: 1px solid var(--line);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 0.6rem 1rem;
 }
@@ -116,7 +116,7 @@
   font-family: var(--font-display);
   font-size: 1.4rem;
   font-weight: 600;
-  background: var(--grad);
+  background: var(--grad-text);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -125,7 +125,7 @@
 .statLabel {
   display: block;
   font-size: 0.72rem;
-  color: var(--muted);
+  color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.04em;
   margin-top: 0.15rem;
@@ -150,7 +150,7 @@
 }
 
 .sectionCount {
-  color: var(--muted);
+  color: var(--text-muted);
   font-size: 0.85rem;
   white-space: nowrap;
 }
@@ -168,8 +168,8 @@
   display: flex;
   align-items: center;
   gap: 0.45rem;
-  background: var(--bg-elev);
-  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
   border-radius: 999px;
   padding: 0.4rem 0.5rem 0.4rem 0.95rem;
   font-size: 0.88rem;
@@ -177,12 +177,12 @@
 }
 
 .categoryChip:hover {
-  border-color: var(--teal);
+  border-color: var(--accent-strong);
 }
 
 .categoryChipRemove {
   background: none;
-  color: var(--muted);
+  color: var(--text-muted);
   border-radius: 50%;
   width: 1.25rem;
   height: 1.25rem;
@@ -203,7 +203,7 @@
   align-items: center;
   gap: 0.4rem;
   background: transparent;
-  border: 1px dashed var(--line-strong);
+  border: 1px dashed var(--border-strong);
   border-radius: 999px;
   padding: 0.3rem 0.3rem 0.3rem 0.95rem;
 }
@@ -228,16 +228,16 @@
 /* ---------- Empty state ---------- */
 
 .emptyCard {
-  border: 1px dashed var(--line-strong);
+  border: 1px dashed var(--border-strong);
   border-radius: var(--radius-lg);
   padding: 2.5rem 1.5rem;
   text-align: center;
-  color: var(--muted);
+  color: var(--text-muted);
 }
 
 .emptyCard strong {
   display: block;
-  color: var(--ink);
+  color: var(--text);
   font-family: var(--font-display);
   font-size: 1.1rem;
   margin-bottom: 0.35rem;
@@ -255,11 +255,11 @@
 }
 
 .dishCard {
-  --accent: var(--faint);
+  --accent: var(--text-faint);
   display: flex;
   flex-direction: column;
-  background: var(--bg-elev);
-  border: 1px solid var(--line);
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   overflow: hidden;
   transition:
@@ -270,8 +270,8 @@
 
 .dishCard:hover {
   transform: translateY(-3px);
-  border-color: var(--line-strong);
-  box-shadow: 0 12px 30px -12px rgba(0, 0, 0, 0.5);
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-elev);
 }
 
 .dishCard[data-status='live'] {
@@ -289,7 +289,7 @@
 .dishPhotoWrap {
   position: relative;
   aspect-ratio: 4 / 3;
-  background: var(--bg-elev-2);
+  background: var(--surface-2);
   border-bottom: 2px solid var(--accent);
 }
 
@@ -311,7 +311,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--faint);
+  color: var(--text-faint);
   font-size: 0.8rem;
 }
 
@@ -336,7 +336,7 @@
 
 .dishDims {
   margin: 0;
-  color: var(--muted);
+  color: var(--text-muted);
   font-size: 0.85rem;
 }
 
@@ -359,7 +359,7 @@
   gap: 0.5rem;
   margin-top: 0.3rem;
   padding-top: 0.7rem;
-  border-top: 1px solid var(--line);
+  border-top: 1px solid var(--border);
 }
 
 .actionBtn {
@@ -368,9 +368,9 @@
   gap: 0.35rem;
   font-size: 0.8rem;
   font-weight: 500;
-  color: var(--ink);
-  background: var(--bg-elev-2);
-  border: 1px solid var(--line-strong);
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
   border-radius: 999px;
   padding: 0.4rem 0.8rem;
   cursor: pointer;
@@ -381,7 +381,7 @@
 }
 
 .actionBtn:hover:not(:disabled) {
-  border-color: var(--teal);
+  border-color: var(--accent-strong);
   transform: translateY(-1px);
 }
 
@@ -393,7 +393,7 @@
 .actionBtnPrimary {
   border-color: transparent;
   background: var(--grad);
-  color: #060712;
+  color: var(--on-grad);
   font-weight: 600;
 }
 
@@ -415,8 +415,8 @@
   display: flex;
   flex-direction: column;
   gap: 1rem;
-  background: var(--bg-elev);
-  border: 1px solid var(--line);
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   padding: 1.5rem;
   margin-top: 1.5rem;
@@ -437,7 +437,7 @@
   height: 1.9rem;
   border-radius: 50%;
   background: var(--grad);
-  color: #060712;
+  color: var(--on-grad);
   font-weight: 700;
   flex-shrink: 0;
 }
@@ -453,7 +453,7 @@
 }
 
 .addDishNote {
-  color: var(--muted);
+  color: var(--text-muted);
   font-size: 0.85rem;
   margin: 0;
 }

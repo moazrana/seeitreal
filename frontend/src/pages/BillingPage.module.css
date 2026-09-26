@@ -9,9 +9,9 @@
 .hero {
   position: relative;
   overflow: clip;
-  border: 1px solid var(--line);
+  border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  background: var(--bg-elev);
+  background: var(--surface);
   padding: 1.75rem 1.75rem 1.5rem;
   margin-bottom: 2.5rem;
   display: flex;
@@ -38,13 +38,13 @@
   align-items: center;
   gap: 0.35rem;
   font-size: 0.85rem;
-  color: var(--muted);
+  color: var(--text-muted);
   text-decoration: none;
   align-self: flex-start;
 }
 
 .backLink:hover {
-  color: var(--ink);
+  color: var(--text);
 }
 
 .eyebrow {
@@ -53,9 +53,9 @@
   align-items: center;
   gap: 0.4rem;
   font-size: 0.75rem;
-  color: var(--muted);
-  border: 1px solid var(--line);
-  background: var(--bg-elev-2);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
   padding: 0.25rem 0.65rem;
   border-radius: 999px;
   align-self: flex-start;
@@ -77,14 +77,14 @@
 .checkoutNotice {
   position: relative;
   margin: 0;
-  color: var(--teal);
+  color: var(--accent-strong);
   font-size: 0.9rem;
 }
 
 .noSubscription {
   position: relative;
   margin: 0;
-  color: var(--muted);
+  color: var(--text-muted);
 }
 
 .currentPlan {
@@ -93,7 +93,7 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 1.5rem;
-  border-top: 1px solid var(--line);
+  border-top: 1px solid var(--border);
   padding-top: 1rem;
   margin-top: 0.25rem;
 }
@@ -101,7 +101,7 @@
 .currentPlanLabel {
   display: block;
   font-size: 0.72rem;
-  color: var(--muted);
+  color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.04em;
   margin-bottom: 0.15rem;
@@ -154,9 +154,9 @@
   align-items: flex-end;
   margin-bottom: 1.25rem;
   padding: 1rem;
-  border: 1px solid var(--line);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
-  background: var(--bg-elev);
+  background: var(--surface);
 }
 
 .field {
@@ -164,7 +164,7 @@
   flex-direction: column;
   gap: 0.3rem;
   font-size: 0.8rem;
-  color: var(--muted);
+  color: var(--text-muted);
 }
 
 .field input {
@@ -184,7 +184,7 @@
 }
 
 .promoApplied {
-  color: var(--teal);
+  color: var(--accent-strong);
   font-size: 0.85rem;
   margin: 0;
 }
@@ -201,9 +201,9 @@
 }
 
 .planCard {
-  border: 1px solid var(--line-strong);
+  border: 1px solid var(--border-strong);
   border-radius: var(--radius);
-  background: var(--bg-elev);
+  background: var(--surface);
   padding: 1.25rem;
   display: flex;
   flex-direction: column;
@@ -211,8 +211,8 @@
 }
 
 .planCard[data-current] {
-  border-color: var(--teal);
-  box-shadow: 0 0 0 1px var(--teal);
+  border-color: var(--accent-strong);
+  box-shadow: 0 0 0 1px var(--accent-strong);
 }
 
 .planName {
@@ -225,7 +225,7 @@
   font-family: var(--font-display);
   font-size: 1.5rem;
   font-weight: 600;
-  background: var(--grad);
+  background: var(--grad-text);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -233,23 +233,23 @@
 
 .planInterval {
   font-size: 0.9rem;
-  color: var(--muted);
-  -webkit-text-fill-color: var(--muted);
+  color: var(--text-muted);
+  -webkit-text-fill-color: var(--text-muted);
 }
 
 .planLimit {
   margin: 0;
   font-size: 0.85rem;
-  color: var(--muted);
+  color: var(--text-muted);
 }
 
 .planCurrentBadge {
   align-self: flex-start;
   font-size: 0.75rem;
   font-weight: 600;
-  color: var(--teal);
-  border: 1px solid rgba(45, 212, 191, 0.3);
-  background: rgba(45, 212, 191, 0.14);
+  color: var(--accent-strong);
+  border: 1px solid var(--tint-teal-line);
+  background: var(--tint-teal-bg);
   padding: 0.15rem 0.6rem;
   border-radius: 999px;
 }
@@ -261,16 +261,16 @@
   gap: 0.35rem;
   font-size: 0.85rem;
   font-weight: 500;
-  color: var(--ink);
-  background: var(--bg-elev-2);
-  border: 1px solid var(--line-strong);
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
   padding: 0.45rem 0.9rem;
   cursor: pointer;
 }
 
 .actionBtn:hover:not(:disabled) {
-  border-color: var(--teal);
+  border-color: var(--accent-strong);
   transform: translateY(-1px);
 }
 
@@ -282,7 +282,7 @@
 .actionBtnPrimary {
   border-color: transparent;
   background: var(--grad);
-  color: #060712;
+  color: var(--on-grad);
   font-weight: 600;
   width: 100%;
 }
@@ -290,16 +290,16 @@
 /* ---------- Invoices ---------- */
 
 .emptyCard {
-  border: 1px dashed var(--line-strong);
+  border: 1px dashed var(--border-strong);
   border-radius: var(--radius-lg);
   padding: 2.5rem 1.5rem;
   text-align: center;
-  color: var(--muted);
+  color: var(--text-muted);
 }
 
 .emptyCard strong {
   display: block;
-  color: var(--ink);
+  color: var(--text);
   font-family: var(--font-display);
   font-size: 1.1rem;
   margin-bottom: 0.35rem;
@@ -313,18 +313,18 @@
 
 .invoiceTable th {
   text-align: left;
-  color: var(--muted);
+  color: var(--text-muted);
   font-weight: 500;
   font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   padding: 0.5rem 0.75rem;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--border);
 }
 
 .invoiceTable td {
   padding: 0.6rem 0.75rem;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--border);
 }
 
 .invoiceStatus {
@@ -335,14 +335,14 @@
   text-transform: uppercase;
   letter-spacing: 0.02em;
   border: 1px solid transparent;
-  background: var(--bg-elev-2);
-  color: var(--muted);
+  background: var(--surface-2);
+  color: var(--text-muted);
 }
 
 .invoiceStatus[data-status='paid'] {
-  background: rgba(45, 212, 191, 0.14);
-  color: #7fe8d8;
-  border-color: rgba(45, 212, 191, 0.3);
+  background: var(--tint-teal-bg);
+  color: var(--tint-teal-text);
+  border-color: var(--tint-teal-line);
 }
 
 .invoiceStatus[data-status='failed'] {

@@ -45,7 +45,7 @@ export function RestaurantsPage() {
   // hide the others.
   useEffect(() => {
     if (user?.role === UserRole.OWNER && restaurants?.length === 1) {
-      navigate(`/restaurants/${restaurants[0].id}`, { replace: true });
+      navigate(`/restaurants/${restaurants[0].slug}`, { replace: true });
     }
   }, [user, restaurants, navigate]);
 
@@ -93,7 +93,7 @@ export function RestaurantsPage() {
         <ul className="card-list">
           {restaurants.map((r) => (
             <li key={r.id} className="card-list-item">
-              <Link to={`/restaurants/${r.id}`}>
+              <Link to={`/restaurants/${r.slug}`}>
                 <strong>{r.name}</strong>
                 <span className="muted"> /{r.slug}</span>
               </Link>
@@ -131,7 +131,12 @@ export function RestaurantsPage() {
           </label>
           <label>
             Address
-            <input value={address} onChange={(e) => setAddress(e.target.value)} required minLength={5} />
+            <input
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
+              required
+              minLength={5}
+            />
           </label>
           <button type="submit" disabled={creating}>
             {creating ? 'Creating…' : 'Create restaurant'}

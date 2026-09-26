@@ -58,9 +58,10 @@ describe('Signup -> restaurant -> menu item (e2e)', () => {
     expect(signupRes.body.user.email).toBe(email);
 
     const restaurantId = signupRes.body.restaurant.id as number;
+    const restaurantSlug = signupRes.body.restaurant.slug as string;
 
     const itemRes = await request(app.getHttpServer())
-      .post(`/api/restaurants/${restaurantId}/items`)
+      .post(`/api/restaurants/${restaurantSlug}/items`)
       .set('Authorization', `Bearer ${accessToken}`)
       .send({ name: 'Cheeseburger' })
       .expect(201);
@@ -72,7 +73,7 @@ describe('Signup -> restaurant -> menu item (e2e)', () => {
     });
 
     const listRes = await request(app.getHttpServer())
-      .get(`/api/restaurants/${restaurantId}/items`)
+      .get(`/api/restaurants/${restaurantSlug}/items`)
       .set('Authorization', `Bearer ${accessToken}`)
       .expect(200);
 
@@ -105,7 +106,7 @@ describe('Signup -> restaurant -> menu item (e2e)', () => {
       .expect(201);
 
     await request(app.getHttpServer())
-      .get(`/api/restaurants/${aSignup.body.restaurant.id}`)
+      .get(`/api/restaurants/${aSignup.body.restaurant.slug}`)
       .set('Authorization', `Bearer ${bSignup.body.accessToken}`)
       .expect(404);
   });

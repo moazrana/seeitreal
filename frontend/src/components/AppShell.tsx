@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/useAuth';
+import { ThemeToggle } from './ThemeToggle';
 
 export function AppShell({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth();
@@ -18,14 +19,17 @@ export function AppShell({ children }: { children: ReactNode }) {
           <img src="/logo.svg" alt="" width="24" height="24" className="app-logo-mark" />
           See<span className="grad-text">ItReal</span>
         </Link>
-        {user && (
-          <div className="app-header-user">
-            <span className="muted">{user.email}</span>
-            <button type="button" className="link-button" onClick={() => void handleLogout()}>
-              Log out
-            </button>
-          </div>
-        )}
+        <div className="app-header-user">
+          <ThemeToggle />
+          {user && (
+            <>
+              <span className="muted">{user.email}</span>
+              <button type="button" className="link-button" onClick={() => void handleLogout()}>
+                Log out
+              </button>
+            </>
+          )}
+        </div>
       </header>
       <main className="app-main">{children}</main>
     </div>

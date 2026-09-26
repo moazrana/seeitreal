@@ -5,6 +5,11 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>SeeItReal — Dashboard</title>
+    <!-- Classic (blocking) script on purpose: applies the stored light/dark
+         choice before first paint so the page never flashes the wrong theme
+         (documents/USER-APP-theming.md §3). Served by the Vite plugin in
+         vite.config.ts from @ar-menu/shared. -->
+    <script src="/theme-init.js"></script>
     <!-- Space Grotesk (display) + Inter (body) for the marketing landing
          page (documents/seeitreal-design-spec.md §2, §6). Both declare a
          system-font fallback stack in landing.module.css so the layout

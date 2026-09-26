@@ -8,7 +8,9 @@ import {
   renderNotFoundPage,
   renderSubscriptionExpiredPage,
 } from './ar-viewer.html';
+import type { ViewerEnvironmentImages } from './ar-viewer.html';
 import { ArViewerService, SubscriptionExpiredError } from './ar-viewer.service';
+import { AR_VIEWER_THEME_SCRIPT } from './ar-viewer.theme-script';
 
 const MODEL_VIEWER_SCRIPT_PATH: string =
   require.resolve('@google/model-viewer/dist/model-viewer.min.js');
@@ -62,9 +64,11 @@ export class ArViewerController {
 
     try {
       const item = await this.arViewer.findItemByPublicSlug(slug);
-      const environmentImageUrl =
-        this.config.get<string>('AR_ENVIRONMENT_IMAGE_URL') || 'neutral';
-      return renderItemPage(item, item.restaurant.name, environmentImageUrl);
+      return renderItemPage(
+        item,
+        item.restaurant.name,
+        this.environmentImages(),
+      );
     } catch (err) {
       if (err instanceof SubscriptionExpiredError) {
         res.status(200);
@@ -89,9 +93,32 @@ export class ArViewerController {
     createReadStream(MODEL_VIEWER_SCRIPT_PATH).pipe(res);
   }
 
+  // Tiny theme helper for the viewer page (see ar-viewer.theme-script.ts).
+  // Unversioned URL, so cached for a day rather than `immutable`. Left under
+  // the global throttle (it's requested once per page view).
+  @Get('static/ar-viewer-theme.js')
+  getThemeScript(@Res() res: Response) {
+    res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    res.send(AR_VIEWER_THEME_SCRIPT);
+  }
+
+  /** Per-theme <model-viewer> environment images (documents/
+   * USER-APP-theming.md §5). Light mode falls back to "neutral" — a bright,
+   * neutral studio IBL — rather than reusing a (typically warm/dark) dark-
+   * mode HDR, unless a dedicated light HDR is configured. */
+  private environmentImages(): ViewerEnvironmentImages {
+    return {
+      dark: this.config.get<string>('AR_ENVIRONMENT_IMAGE_URL') || 'neutral',
+      light:
+        this.config.get<string>('AR_ENVIRONMENT_IMAGE_URL_LIGHT') || 'neutral',
+    };
+  }
+
   /** Origins the CSP must explicitly allow beyond 'self' — object storage
    * (STORAGE_PUBLIC_BASE_URL, where photos/models actually live under
-   * STORAGE_DRIVER=s3) and, if configured, the HDR environment-image host.
+   * STORAGE_DRIVER=s3) and, if configured, the dark/light HDR
+   * environment-image hosts.
    * Returns a leading-space-prefixed, space-separated list ready to splice
    * into a directive value (empty string when nothing extra is configured
    * — e.g. local dev, where uploads are same-origin). Malformed config is
@@ -101,6 +128,7 @@ export class ArViewerController {
     const candidates = [
       this.config.get<string>('STORAGE_PUBLIC_BASE_URL'),
       this.config.get<string>('AR_ENVIRONMENT_IMAGE_URL'),
+      this.config.get<string>('AR_ENVIRONMENT_IMAGE_URL_LIGHT'),
     ];
     const origins = new Set<string>();
     for (const candidate of candidates) {

@@ -2,6 +2,7 @@ import { lazy, Suspense } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { AuthProvider } from './context/AuthContext';
+import { ThemeProvider } from './context/ThemeContext';
 import { BillingPage } from './pages/BillingPage';
 import { LoginPage } from './pages/LoginPage';
 import { RestaurantDetailPage } from './pages/RestaurantDetailPage';
@@ -17,44 +18,46 @@ const LandingPage = lazy(() =>
 
 export default function App() {
   return (
-    <AuthProvider>
-      <Routes>
-        <Route
-          path="/"
-          element={
-            <Suspense fallback={null}>
-              <LandingPage />
-            </Suspense>
-          }
-        />
-        <Route path="/login" element={<LoginPage />} />
-        <Route path="/signup" element={<SignupPage />} />
-        <Route
-          path="/restaurants"
-          element={
-            <ProtectedRoute>
-              <RestaurantsPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/restaurants/:id"
-          element={
-            <ProtectedRoute>
-              <RestaurantDetailPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/restaurants/:id/billing"
-          element={
-            <ProtectedRoute>
-              <BillingPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </AuthProvider>
+    <ThemeProvider>
+      <AuthProvider>
+        <Routes>
+          <Route
+            path="/"
+            element={
+              <Suspense fallback={null}>
+                <LandingPage />
+              </Suspense>
+            }
+          />
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/signup" element={<SignupPage />} />
+          <Route
+            path="/restaurants"
+            element={
+              <ProtectedRoute>
+                <RestaurantsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/restaurants/:slug"
+            element={
+              <ProtectedRoute>
+                <RestaurantDetailPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/restaurants/:slug/billing"
+            element={
+              <ProtectedRoute>
+                <BillingPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </AuthProvider>
+    </ThemeProvider>
   );
 }

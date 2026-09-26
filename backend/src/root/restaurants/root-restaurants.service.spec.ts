@@ -66,6 +66,20 @@ describe('RootRestaurantsService', () => {
   });
 
   describe('suspend', () => {
+    it('looks the restaurant up by slug', async () => {
+      prisma.restaurant.findUnique.mockResolvedValueOnce({
+        id: 10,
+        suspended: false,
+      });
+      prisma.restaurant.update.mockResolvedValueOnce({ id: 10 });
+
+      await service.suspend('pizza-place', 'Non-payment', admin, undefined);
+
+      expect(prisma.restaurant.findUnique).toHaveBeenCalledWith({
+        where: { slug: 'pizza-place' },
+      });
+    });
+
     it('suspends a restaurant and audit-logs the action', async () => {
       prisma.restaurant.findUnique.mockResolvedValueOnce({
         id: 10,
@@ -76,7 +90,7 @@ describe('RootRestaurantsService', () => {
         suspended: true,
       });
 
-      await service.suspend(10, 'Non-payment', admin, '1.2.3.4');
+      await service.suspend('pizza-place', 'Non-payment', admin, '1.2.3.4');
 
       expect(prisma.restaurant.update).toHaveBeenCalledWith({
         where: { id: 10 },
@@ -102,7 +116,7 @@ describe('RootRestaurantsService', () => {
       });
 
       await expect(
-        service.suspend(10, 'reason', admin, undefined),
+        service.suspend('pizza-place', 'reason', admin, undefined),
       ).rejects.toBeInstanceOf(BadRequestException);
       expect(prisma.restaurant.update).not.toHaveBeenCalled();
     });
@@ -111,7 +125,7 @@ describe('RootRestaurantsService', () => {
       prisma.restaurant.findUnique.mockResolvedValueOnce(null);
 
       await expect(
-        service.suspend(999, 'reason', admin, undefined),
+        service.suspend('no-such-place', 'reason', admin, undefined),
       ).rejects.toBeInstanceOf(NotFoundException);
     });
   });
@@ -127,7 +141,7 @@ describe('RootRestaurantsService', () => {
         suspended: false,
       });
 
-      await service.reactivate(10, admin, '1.2.3.4');
+      await service.reactivate('pizza-place', admin, '1.2.3.4');
 
       expect(prisma.restaurant.update).toHaveBeenCalledWith({
         where: { id: 10 },
@@ -142,12 +156,16 @@ describe('RootRestaurantsService', () => {
       });
 
       await expect(
-        service.reactivate(10, admin, undefined),
+        service.reactivate('pizza-place', admin, undefined),
       ).rejects.toBeInstanceOf(BadRequestException);
     });
   });
 
   describe('hideItem / unhideItem', () => {
+    beforeEach(() => {
+      prisma.restaurant.findUnique.mockResolvedValueOnce({ id: 10 });
+    });
+
     it('hides an item belonging to the given restaurant', async () => {
       prisma.menuItem.findUnique.mockResolvedValueOnce({
         id: 5,
@@ -158,7 +176,7 @@ describe('RootRestaurantsService', () => {
         hiddenByAdmin: true,
       });
 
-      await service.hideItem(10, 5, admin, '1.2.3.4');
+      await service.hideItem('pizza-place', 5, admin, '1.2.3.4');
 
       expect(prisma.menuItem.update).toHaveBeenCalledWith({
         where: { id: 5 },
@@ -181,7 +199,17 @@ describe('RootRestaurantsService', () => {
       });
 
       await expect(
-        service.hideItem(10, 5, admin, undefined),
+        service.hideItem('pizza-place', 5, admin, undefined),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      expect(prisma.menuItem.update).not.toHaveBeenCalled();
+    });
+
+    it('404s when the restaurant slug does not exist', async () => {
+      prisma.restaurant.findUnique.mockReset();
+      prisma.restaurant.findUnique.mockResolvedValueOnce(null);
+
+      await expect(
+        service.hideItem('no-such-place', 5, admin, undefined),
       ).rejects.toBeInstanceOf(NotFoundException);
       expect(prisma.menuItem.update).not.toHaveBeenCalled();
     });
@@ -196,7 +224,7 @@ describe('RootRestaurantsService', () => {
         hiddenByAdmin: false,
       });
 
-      await service.unhideItem(10, 5, admin, undefined);
+      await service.unhideItem('pizza-place', 5, admin, undefined);
 
       expect(prisma.menuItem.update).toHaveBeenCalledWith({
         where: { id: 5 },

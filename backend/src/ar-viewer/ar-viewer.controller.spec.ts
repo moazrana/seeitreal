@@ -54,6 +54,8 @@ describe('ArViewerController', () => {
     await build({
       STORAGE_PUBLIC_BASE_URL: 'https://cdn.example.com/assets',
       AR_ENVIRONMENT_IMAGE_URL: 'https://hdr.example.net/kitchen.hdr',
+      AR_ENVIRONMENT_IMAGE_URL_LIGHT:
+        'https://light-hdr.example.org/studio.hdr',
     });
     arViewer.findItemByPublicSlug.mockResolvedValueOnce({
       name: 'Burger',
@@ -69,6 +71,7 @@ describe('ArViewerController', () => {
     expect(csp).toContain('img-src');
     expect(csp).toContain('https://cdn.example.com');
     expect(csp).toContain('https://hdr.example.net');
+    expect(csp).toContain('https://light-hdr.example.org');
     expect(csp).not.toContain('*');
   });
 
@@ -86,6 +89,41 @@ describe('ArViewerController', () => {
 
     const csp = res.headers['Content-Security-Policy'];
     expect(csp).not.toContain('neutral');
+  });
+
+  it('passes per-theme environment images, falling back to "neutral" for light (documents/USER-APP-theming.md §5)', async () => {
+    await build({
+      AR_ENVIRONMENT_IMAGE_URL: 'https://hdr.example.net/kitchen.hdr',
+    });
+    arViewer.findItemByPublicSlug.mockResolvedValueOnce({
+      name: 'Burger',
+      arStatus: 'live',
+      modelGlbUrl: 'https://cdn.example/m.glb',
+      modelUsdzUrl: 'https://cdn.example/m.usdz',
+      photoUrl: null,
+      restaurant: { name: 'Demo Diner' },
+    });
+    const res = makeRes();
+
+    const html = await controller.viewItem('slug', res as never);
+
+    expect(html).toContain(
+      'data-environment-image-dark="https://hdr.example.net/kitchen.hdr"',
+    );
+    expect(html).toContain('data-environment-image-light="neutral"');
+  });
+
+  it('serves the theme script as cacheable JavaScript', async () => {
+    await build({});
+    const res = { ...makeRes(), send: jest.fn() };
+
+    controller.getThemeScript(res as never);
+
+    expect(res.headers['Content-Type']).toContain('javascript');
+    expect(res.headers['Cache-Control']).toBe('public, max-age=86400');
+    expect(res.send).toHaveBeenCalledWith(
+      expect.stringContaining('prefers-color-scheme: light'),
+    );
   });
 
   it('renders the 404 page (not an error) for a missing/suspended/hidden item', async () => {
