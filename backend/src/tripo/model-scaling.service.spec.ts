@@ -117,7 +117,7 @@ describe('ModelScalingService', () => {
     service = new ModelScalingService();
   });
 
-  it('uniform-scales the model so its bounding-box width matches the target real-world width', async () => {
+  it('uniform-scales the model so its footprint matches the target real-world width', async () => {
     // A 0.10m-wide node, target real width 260mm (0.26m).
     const glb = buildGlbFixture([
       {
@@ -128,7 +128,7 @@ describe('ModelScalingService', () => {
       },
     ]);
 
-    const scaled = await service.scaleToRealWidth(glb, 260);
+    const scaled = await service.scaleToRealSize(glb, { widthMm: 260 });
     const [node] = readFixture(Buffer.from(scaled));
 
     const width = (node.baseMax[0] - node.baseMin[0]) * node.scale[0];
@@ -139,13 +139,13 @@ describe('ModelScalingService', () => {
     const glb = buildGlbFixture([
       {
         baseMin: [0, 0, 0],
-        baseMax: [0.1, 0.05, 0.2],
+        baseMax: [0.2, 0.05, 0.1],
         scale: [1, 1, 1],
         translation: [0, 0, 0],
       },
     ]);
 
-    const scaled = await service.scaleToRealWidth(glb, 260);
+    const scaled = await service.scaleToRealSize(glb, { widthMm: 260 });
     const [node] = readFixture(Buffer.from(scaled));
 
     expect(node.scale[0]).toBeCloseTo(node.scale[1], 10);
@@ -162,7 +162,7 @@ describe('ModelScalingService', () => {
       },
     ]);
 
-    const scaled = await service.scaleToRealWidth(glb, 260);
+    const scaled = await service.scaleToRealSize(glb, { widthMm: 260 });
     const [node] = readFixture(Buffer.from(scaled));
 
     // Current world width was 0.1 * 2 = 0.2m; factor to reach 0.26m is 1.3,
@@ -180,23 +180,72 @@ describe('ModelScalingService', () => {
       },
     ]);
 
-    const scaled = await service.scaleToRealWidth(glb, 260);
+    const scaled = await service.scaleToRealSize(glb, { widthMm: 260 });
     const [node] = readFixture(Buffer.from(scaled));
 
     const worldMinY = node.baseMin[1] * node.scale[1] + node.translation[1];
     expect(worldMinY).toBeCloseTo(0, 5);
   });
 
-  it('rejects a model with a zero-width bounding box instead of dividing by zero', async () => {
+  it('matches the footprint regardless of which horizontal axis the model is longest on (staging burger regression)', async () => {
+    // Staging "Shami Burger": Tripo put the long side on Z. Pre-fix, X was
+    // matched to 260mm, making it 26 × 33 × 57 cm.
     const glb = buildGlbFixture([
       {
         baseMin: [0, 0, 0],
-        baseMax: [0, 1, 1], // zero extent on X
+        baseMax: [0.26, 0.3304, 0.5692],
         scale: [1, 1, 1],
         translation: [0, 0, 0],
       },
     ]);
 
-    await expect(service.scaleToRealWidth(glb, 260)).rejects.toThrow(/width/);
+    const scaled = await service.scaleToRealSize(glb, {
+      widthMm: 260,
+      lengthMm: 260,
+    });
+    const [node] = readFixture(Buffer.from(scaled));
+    const extent = (i: number) =>
+      (node.baseMax[i] - node.baseMin[i]) * node.scale[i];
+
+    expect(Math.max(extent(0), extent(2))).toBeCloseTo(0.26, 5);
+    // Height lands on the owner's own 150mm measurement.
+    expect(extent(1)).toBeCloseTo(0.151, 3);
+  });
+
+  it('uses the larger of width and length as the real footprint', async () => {
+    const glb = buildGlbFixture([
+      {
+        baseMin: [0, 0, 0],
+        baseMax: [0.1, 0.05, 0.05],
+        scale: [1, 1, 1],
+        translation: [0, 0, 0],
+      },
+    ]);
+
+    const scaled = await service.scaleToRealSize(glb, {
+      widthMm: 200,
+      lengthMm: 300,
+    });
+    const [node] = readFixture(Buffer.from(scaled));
+
+    expect((node.baseMax[0] - node.baseMin[0]) * node.scale[0]).toBeCloseTo(
+      0.3,
+      5,
+    );
+  });
+
+  it('rejects a model with a zero-width footprint instead of dividing by zero', async () => {
+    const glb = buildGlbFixture([
+      {
+        baseMin: [0, 0, 0],
+        baseMax: [0, 1, 0], // zero extent on X and Z
+        scale: [1, 1, 1],
+        translation: [0, 0, 0],
+      },
+    ]);
+
+    await expect(
+      service.scaleToRealSize(glb, { widthMm: 260 }),
+    ).rejects.toThrow(/footprint/);
   });
 });

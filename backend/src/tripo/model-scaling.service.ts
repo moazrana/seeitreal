@@ -3,6 +3,12 @@ import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
 import { getBounds } from '@gltf-transform/functions';
 import { Injectable } from '@nestjs/common';
 
+/** The owner-entered footprint the model is scaled to, in millimetres. */
+export interface RealFootprintMm {
+  widthMm: number;
+  lengthMm?: number | null;
+}
+
 /**
  * Scales a Tripo-generated GLB to the dish's true real-world size
  * (documents/TASK-real-world-ar-sizing.md). Tripo returns models at an
@@ -38,17 +44,25 @@ export class ModelScalingService {
   }
 
   /**
-   * Uniform-scales the model so its bounding-box width matches
-   * `realWidthMm`, then translates it so its base rests at y = 0.
+   * Uniform-scales the model so its horizontal footprint matches the
+   * dish's real footprint, then translates it so its base rests at y = 0.
    *
-   * Deliberately scales uniformly from width alone rather than stretching
-   * width/height/length independently — the AI's proportions are only
-   * approximately right, and forcing all three axes would distort the
-   * shape (spec: TASK-real-world-ar-sizing.md §3).
+   * The model's footprint is its larger horizontal bounding-box extent
+   * (X or Z), matched to the larger of the owner's width/length. Tripo
+   * doesn't orient dishes consistently around the vertical axis — a
+   * burger's long side can land on Z instead of X — so matching only the
+   * X extent to `widthMm` (the task spec's literal reading) scaled such
+   * models far too large along Z. Found on staging: a 260mm burger came
+   * out 26 × 33 × 57 cm; footprint matching gives 12 × 15 × 26 cm, whose
+   * 15 cm height agrees with the owner's own 150mm measurement.
+   *
+   * Still one uniform factor on all three axes — never stretched per axis,
+   * which would distort the AI's approximate proportions (spec:
+   * TASK-real-world-ar-sizing.md §3).
    */
-  async scaleToRealWidth(
+  async scaleToRealSize(
     glbBuffer: Buffer,
-    realWidthMm: number,
+    footprint: RealFootprintMm,
   ): Promise<Buffer> {
     const io = this.getIo();
     const document = await io.readBinary(new Uint8Array(glbBuffer));
@@ -58,15 +72,28 @@ export class ModelScalingService {
     }
 
     const bbox = getBounds(scene);
-    const currentWidth = bbox.max[0] - bbox.min[0];
-    if (!Number.isFinite(currentWidth) || currentWidth <= 0) {
+    const currentFootprint = Math.max(
+      bbox.max[0] - bbox.min[0],
+      bbox.max[2] - bbox.min[2],
+    );
+    if (!Number.isFinite(currentFootprint) || currentFootprint <= 0) {
       throw new Error(
-        `Cannot scale: model bounding box has an invalid width (${currentWidth})`,
+        `Cannot scale: model bounding box has an invalid footprint width (${currentFootprint})`,
       );
     }
 
-    const realWidthMeters = realWidthMm / 1000;
-    const factor = realWidthMeters / currentWidth;
+    const realFootprintMm = Math.max(
+      footprint.widthMm,
+      footprint.lengthMm ?? 0,
+    );
+    if (!Number.isFinite(realFootprintMm) || realFootprintMm <= 0) {
+      throw new Error(
+        `Cannot scale: invalid real-world footprint (${realFootprintMm}mm)`,
+      );
+    }
+
+    // glTF units are metres.
+    const factor = realFootprintMm / 1000 / currentFootprint;
 
     for (const node of scene.listChildren()) {
       const s = node.getScale();

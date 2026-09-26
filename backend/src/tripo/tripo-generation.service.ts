@@ -176,10 +176,10 @@ export class TripoGenerationService {
     // always be set here; the `if` is defense in depth, not the norm.
     if (item.widthMm) {
       try {
-        glbBuffer = await this.modelScaling.scaleToRealWidth(
-          glbBuffer,
-          item.widthMm,
-        );
+        glbBuffer = await this.modelScaling.scaleToRealSize(glbBuffer, {
+          widthMm: item.widthMm,
+          lengthMm: item.lengthMm,
+        });
       } catch (err) {
         this.logger.error(
           `Real-world scaling failed for task ${result.taskId}: ${String(err)}`,
