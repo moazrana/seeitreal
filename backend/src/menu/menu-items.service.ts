@@ -128,7 +128,13 @@ export class MenuItemsService {
    * Removes one photo (documents/3d-model-enhancement.md §1). Renumbers the
    * remaining photos to stay contiguous 0..n-1 and, if the removed photo
    * was the display photo (sortOrder 0), promotes the new first photo (or
-   * clears it if none remain). Same model-invalidation as addPhotos.
+   * clears it if none remain).
+   *
+   * Unlike addPhotos, this never invalidates the 3D model: removing an
+   * input photo doesn't make an already generated/approved model wrong,
+   * and wiping it took a live dish (and the QR code already printed for
+   * it) offline over routine photo housekeeping. New photos are new input,
+   * so addPhotos still resets the model for regeneration.
    */
   async removePhoto(
     restaurantId: number,
@@ -159,10 +165,7 @@ export class MenuItemsService {
     return this.prisma.menuItem.update({
       where: { id },
       include: PHOTOS_ORDERED,
-      data: {
-        photoUrl: remaining[0]?.url ?? null,
-        ...MODEL_INVALIDATION_FIELDS,
-      },
+      data: { photoUrl: remaining[0]?.url ?? null },
     });
   }
 

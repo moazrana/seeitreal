@@ -629,6 +629,16 @@ button:disabled {
   border-radius: var(--radius-sm);
 }
 
+.qr-powered-by {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin: -0.25rem 0 0;
+  font-size: 0.7rem;
+  letter-spacing: 0.02em;
+  color: var(--text-muted);
+}
+
 .qr-code-url {
   word-break: break-all;
   text-align: center;

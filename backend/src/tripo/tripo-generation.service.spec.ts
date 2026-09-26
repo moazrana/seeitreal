@@ -48,7 +48,7 @@ describe('TripoGenerationService', () => {
   };
   let storage: { putObject: jest.Mock; generateKey: jest.Mock };
   let usdz: { convert: jest.Mock };
-  let modelScaling: { scaleToRealWidth: jest.Mock };
+  let modelScaling: { scaleToRealSize: jest.Mock };
   let originalFetch: typeof fetch;
 
   const owner = { userId: 1, email: 'owner@example.com', role: UserRole.OWNER };
@@ -81,7 +81,7 @@ describe('TripoGenerationService', () => {
     };
     usdz = { convert: jest.fn() };
     modelScaling = {
-      scaleToRealWidth: jest
+      scaleToRealSize: jest
         .fn()
         .mockImplementation((buf: Buffer) => Promise.resolve(buf)),
     };
@@ -380,7 +380,7 @@ describe('TripoGenerationService', () => {
         arrayBuffer: () => Promise.resolve(Buffer.from('fake-glb-bytes')),
       });
       const scaledBuffer = Buffer.from('scaled-glb-bytes');
-      modelScaling.scaleToRealWidth.mockResolvedValueOnce(scaledBuffer);
+      modelScaling.scaleToRealSize.mockResolvedValueOnce(scaledBuffer);
       usdz.convert.mockResolvedValueOnce(Buffer.from('fake-usdz'));
 
       await service.handleTaskResult({
@@ -390,9 +390,9 @@ describe('TripoGenerationService', () => {
         output: { modelUrl: 'https://tripo.example/model.glb' },
       });
 
-      expect(modelScaling.scaleToRealWidth).toHaveBeenCalledWith(
+      expect(modelScaling.scaleToRealSize).toHaveBeenCalledWith(
         Buffer.from('fake-glb-bytes'),
-        260,
+        { widthMm: 260, lengthMm: undefined },
       );
       // The uploaded GLB and the buffer handed to USDZ conversion must both
       // be the *scaled* buffer, not the raw Tripo download.
@@ -415,7 +415,7 @@ describe('TripoGenerationService', () => {
         ok: true,
         arrayBuffer: () => Promise.resolve(Buffer.from('fake-glb-bytes')),
       });
-      modelScaling.scaleToRealWidth.mockRejectedValueOnce(
+      modelScaling.scaleToRealSize.mockRejectedValueOnce(
         new Error('bounding box is degenerate'),
       );
 

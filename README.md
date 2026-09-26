@@ -164,11 +164,15 @@ allow-list, and a global exception filter that never leaks internals to clients.
 - Model QA (approve/reject) **moved to the Root App** — see below. The old `backend/src/admin/`
   module, its `/api/admin/*` routes, and the customer dashboard's QA queue page are gone.
 - Real-world AR sizing (`documents/TASK-real-world-ar-sizing.md`): `MenuItem` carries
-  `width_mm`/`height_mm`/`length_mm`, entered by the owner (dashboard) and validated server-side
-  (`1–5000`). Tripo returns models at an arbitrary normalized scale, so before GLB→USDZ
-  conversion, `ModelScalingService` uniform-scales the downloaded GLB so its bounding-box width
-  matches the item's real `width_mm` (never stretching width/height/length independently — that
-  would distort the AI's proportions) and grounds it so its base sits at `y = 0`. `widthMm` is
+  `width_mm`/`height_mm`/`length_mm`, entered by the owner in **centimetres** (dashboard), stored
+  as whole millimetres and validated server-side (`10–5000`, bounds in `shared/src/menu.ts`; the
+  10 mm floor exists because a `5` typed into the old millimetre field produced a 0.5 cm AR dish).
+  Tripo returns models at an arbitrary normalized scale, so before GLB→USDZ conversion,
+  `ModelScalingService` uniform-scales the downloaded GLB so its **footprint** — the larger of its
+  X/Z bounding-box extents — matches the larger of the item's `width_mm`/`length_mm`. Tripo doesn't
+  orient dishes consistently, so matching X to width alone made models whose long side landed on
+  Z far too large. It never stretches axes independently (that would distort the AI's
+  proportions) and grounds the model so its base sits at `y = 0`. `widthMm` is
   required before `generate-model` will run and again before `AdminService.approve` will publish
   an item — an item can never go `live` unscaled. The diner AR viewer shows a "true size" caption
   when dimensions are set.
@@ -249,9 +253,25 @@ events) is intentionally not wired in yet — that's spec §9 build-order step 5
   and support/feedback inboxes (the owner-side submission endpoints don't exist yet either).
 
 **Also built ahead of the strict build order:** a working React dashboard (`frontend/`) —
-login/signup, restaurant creation, category management, menu item CRUD, multi-photo upload
-(up to 5, with a capture guide and per-photo removal), a manual-GLB upload for hero dishes,
-and the generate-3D-model trigger.
+login/signup, restaurant creation, **cuisine types** (the owner-facing name for menu categories;
+the API/DB keep `category`) with cuisine tabs that filter the dish grid, menu item CRUD,
+multi-photo upload (up to 5, with a capture guide and per-photo removal), a manual-GLB upload for
+hero dishes, and the generate-3D-model trigger. Also:
+
+- **Live updates, no reload:** `useLiveRefresh` re-polls the page's existing authenticated
+  endpoints while the tab is visible (every 5 s while a dish is generating or in QA, 20 s
+  otherwise; billing every 15 s), refreshes on focus, stops while hidden, and backs off for 60 s
+  on `429`. It uses polling rather than a push channel so every refresh passes the same JWT and
+  ownership checks and works across multiple API instances.
+- **QR codes persist:** `MenuItem.qr_issued_at` is set the first time a dish is approved and
+  never cleared (live dishes were backfilled by migration). The "Show QR code" button stays
+  available from then on, even while the model is regenerated, and the viewer shows diners a
+  "coming soon" note. Removing a photo no longer resets a dish's model, so it no longer takes the
+  dish offline. QR codes carry a small "Powered by seeItReal.com" line and logo.
+- **Confirm before destructive actions:** deleting a cuisine type, dish or photo, or cancelling
+  a subscription, opens an accessible confirm dialog (native `<dialog>`, focus starts on Cancel).
+- **Billing:** the billing page shows the current plan and invoices only; packages live on
+  `/restaurants/:slug/billing/plans`, reached from "Change package" / "Choose a package".
 
 **Not yet built** (see spec §9 for the rest of the build order, and the Root App bullets above
 for what it specifically defers): QR code generation, analytics, deals/promos, billing,
@@ -306,7 +326,7 @@ they only appear in API requests, never in a browser URL.
 | POST/GET         | `/restaurants/:slug/items`                           | JWT            |                                                                                                    |
 | GET/PATCH/DELETE | `/restaurants/:slug/items/:itemSlug`                 | JWT            |                                                                                                    |
 | POST             | `/restaurants/:slug/items/:itemSlug/photos`          | JWT            | multipart, 1–5 files (field `files`); resets AR status; 400 past 5 total                           |
-| DELETE           | `/restaurants/:slug/items/:itemSlug/photos/:photoId` | JWT            | 404 if the photo isn't this item's; resets AR status                                               |
+| DELETE           | `/restaurants/:slug/items/:itemSlug/photos/:photoId` | JWT            | 404 if the photo isn't this item's; leaves the 3D model/AR status untouched                        |
 | POST             | `/restaurants/:slug/items/:itemSlug/generate-model`  | JWT            | triggers Tripo (single-image or multiview by photo count); only from `pending`, requires `widthMm` |
 | POST             | `/restaurants/:slug/items/:itemSlug/model`           | JWT            | hero-dish bypass: multipart `.glb` upload, skips Tripo; only from `pending`, requires `widthMm`    |
 | GET              | `/uploads/:prefix/:filename`                         | —              | read-only static serving (local storage driver)                                                    |

@@ -8,6 +8,7 @@ import {
   Min,
   MinLength,
 } from 'class-validator';
+import { MAX_DIMENSION_MM, MIN_DIMENSION_MM } from '@ar-menu/shared';
 
 export class CreateMenuItemDto {
   @IsOptional()
@@ -37,22 +38,24 @@ export class CreateMenuItemDto {
   // widthMm before it will start a 3D-generation job, and AdminService
   // requires it again before an item can go live. Upper bound of 5000mm
   // (5m) per the task spec — comfortably covers any dish/product while
-  // rejecting garbage input.
+  // rejecting garbage input. Lower bound of 10mm (1cm): nothing served on
+  // a menu is smaller, and a 5mm entry on staging produced a half-
+  // centimetre AR dish (a cm/inch value typed into a mm field).
   @IsOptional()
   @IsInt()
-  @Min(1)
-  @Max(5000)
+  @Min(MIN_DIMENSION_MM)
+  @Max(MAX_DIMENSION_MM)
   widthMm?: number;
 
   @IsOptional()
   @IsInt()
-  @Min(1)
-  @Max(5000)
+  @Min(MIN_DIMENSION_MM)
+  @Max(MAX_DIMENSION_MM)
   heightMm?: number;
 
   @IsOptional()
   @IsInt()
-  @Min(1)
-  @Max(5000)
+  @Min(MIN_DIMENSION_MM)
+  @Max(MAX_DIMENSION_MM)
   lengthMm?: number;
 }

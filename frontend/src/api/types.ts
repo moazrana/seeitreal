@@ -53,6 +53,9 @@ export interface MenuItem {
   arStatus: ArStatus;
   publicSlug: string;
   qaNote: string | null;
+  // Set the first time the dish went live and never cleared — the QR code
+  // (a stable public URL) stays available from then on.
+  qrIssuedAt: string | null;
 }
 
 export interface QaQueueItem extends MenuItem {
