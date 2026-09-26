@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { UserRole } from '@ar-menu/shared';
 import { restaurantsApi } from '../api/restaurants';
 import type { Restaurant } from '../api/types';
 import { ErrorBanner } from '../components/ErrorBanner';
+import { useLiveRefresh } from '../hooks/useLiveRefresh';
 import { errorMessage } from '../lib/errors';
 import { AppShell } from '../components/AppShell';
 import { useAuth } from '../context/useAuth';
@@ -36,6 +37,13 @@ export function RestaurantsPage() {
   }
 
   useEffect(load, []);
+
+  // Background refresh (restaurants added/renamed elsewhere, e.g. by an
+  // admin); errors are left to the next tick.
+  const refreshLive = useCallback(async () => {
+    setRestaurants(await restaurantsApi.list());
+  }, []);
+  useLiveRefresh(refreshLive, { intervalMs: 30_000, enabled: restaurants !== null });
 
   // One restaurant per account: an owner with their one restaurant goes
   // straight to it instead of landing on this list (bookmarks, the

@@ -4,6 +4,8 @@ import QRCode from 'qrcode';
 interface QrCodeModalProps {
   title: string;
   url: string;
+  /** Optional context shown under the code (e.g. "model is being updated"). */
+  notice?: string;
   onClose: () => void;
 }
 
@@ -12,7 +14,7 @@ interface QrCodeModalProps {
  * the dish's public URL never leaves the browser just to render a code
  * for it.
  */
-export function QrCodeModal({ title, url, onClose }: QrCodeModalProps) {
+export function QrCodeModal({ title, url, notice, onClose }: QrCodeModalProps) {
   const [dataUrl, setDataUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -43,6 +45,11 @@ export function QrCodeModal({ title, url, onClose }: QrCodeModalProps) {
         </div>
         {error && <p className="qa-note">{error}</p>}
         {!error && (dataUrl ? <img className="qr-code-image" src={dataUrl} alt={`QR code for ${title}`} /> : <p>Generating…</p>)}
+        <p className="qr-powered-by">
+          Powered by seeItReal.com
+          <img src="/logo.svg" alt="" width="12" height="12" />
+        </p>
+        {notice && <p className="qa-note">{notice}</p>}
         <p className="muted qr-code-url">{url}</p>
       </div>
     </div>

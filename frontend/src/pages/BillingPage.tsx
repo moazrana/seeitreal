@@ -1,31 +1,20 @@
-import { useEffect, useState } from 'react';
-import type { FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { billingApi } from '../api/billing';
 import { restaurantsApi } from '../api/restaurants';
-import type {
-  Invoice,
-  PromoPreview,
-  Restaurant,
-  Subscription,
-  SubscriptionPackage,
-} from '../api/types';
+import type { Invoice, Restaurant, Subscription } from '../api/types';
 import { AppShell } from '../components/AppShell';
 import { ErrorBanner } from '../components/ErrorBanner';
+import { useConfirm } from '../hooks/useConfirm';
+import { useLiveRefresh } from '../hooks/useLiveRefresh';
+import { formatMinorUnits } from '../lib/billingFormat';
+import type { BillingCurrency } from '../lib/billingFormat';
 import { errorMessage } from '../lib/errors';
 import s from './BillingPage.module.css';
 
-function currencyForCountry(country: string): 'PKR' | 'USD' {
-  return country.toUpperCase() === 'PK' ? 'PKR' : 'USD';
-}
-
-function formatMinorUnits(amount: number, currency: 'PKR' | 'USD'): string {
-  return new Intl.NumberFormat(currency === 'PKR' ? 'en-PK' : 'en-US', {
-    style: 'currency',
-    currency,
-    maximumFractionDigits: 0,
-  }).format(amount / 100);
-}
+// Payment confirmation arrives via the gateway webhook, not this page —
+// poll so the "we're confirming your payment" state resolves on its own.
+const REFRESH_MS = 15_000;
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, {
@@ -46,81 +35,50 @@ export function BillingPage() {
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
   const [subscription, setSubscription] = useState<Subscription | null>(null);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
-  const [packages, setPackages] = useState<SubscriptionPackage[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-
-  const [billingCountry, setBillingCountry] = useState('PK');
-  const [promoCode, setPromoCode] = useState('');
-  const [promoPreview, setPromoPreview] = useState<PromoPreview | null>(null);
-  const [promoError, setPromoError] = useState<string | null>(null);
+  const { confirm, confirmDialog } = useConfirm();
+  const loadSeq = useRef(0);
 
   function loadAll() {
+    const seq = ++loadSeq.current;
     Promise.all([
       restaurantsApi.get(restaurantSlug),
       billingApi.getSubscription(restaurantSlug),
       billingApi.listInvoices(restaurantSlug),
-      billingApi.listPackages(),
-      billingApi.defaultCountry(),
     ])
-      .then(([r, sub, inv, pkgs, country]) => {
+      .then(([r, sub, inv]) => {
+        if (seq !== loadSeq.current) return;
         setRestaurant(r);
         setSubscription(sub);
         setInvoices(inv);
-        setPackages(pkgs);
-        setBillingCountry(country.country);
       })
       .catch((err: unknown) => setError(errorMessage(err)));
   }
 
   useEffect(loadAll, [restaurantSlug]);
 
-  async function handleValidatePromo() {
-    setPromoError(null);
-    setPromoPreview(null);
-    if (!promoCode.trim()) return;
-    try {
-      const preview = await billingApi.validatePromo(
-        promoCode.trim().toUpperCase(),
-        'subscription',
-      );
-      setPromoPreview(preview);
-    } catch (err) {
-      setPromoError(errorMessage(err));
-    }
-  }
+  const refreshLive = useCallback(async () => {
+    const seq = ++loadSeq.current;
+    const [sub, inv] = await Promise.all([
+      billingApi.getSubscription(restaurantSlug),
+      billingApi.listInvoices(restaurantSlug),
+    ]);
+    if (seq !== loadSeq.current) return;
+    setSubscription(sub);
+    setInvoices(inv);
+  }, [restaurantSlug]);
 
-  async function handleSubscribe(packageId: number, e: FormEvent) {
-    e.preventDefault();
-    setError(null);
-    setBusy(true);
-    try {
-      const { checkoutUrl } = await billingApi.checkout(restaurantSlug, {
-        packageId,
-        billingCountry,
-        promoCode: promoPreview ? promoCode.trim().toUpperCase() : undefined,
-      });
-      window.location.href = checkoutUrl;
-    } catch (err) {
-      setError(errorMessage(err));
-      setBusy(false);
-    }
-  }
-
-  async function handleChangePackage(packageId: number) {
-    setError(null);
-    setBusy(true);
-    try {
-      await billingApi.changePackage(restaurantSlug, packageId);
-      loadAll();
-    } catch (err) {
-      setError(errorMessage(err));
-    } finally {
-      setBusy(false);
-    }
-  }
+  useLiveRefresh(refreshLive, { intervalMs: REFRESH_MS, enabled: restaurant !== null });
 
   async function handleCancel() {
+    const confirmed = await confirm({
+      title: 'Cancel your subscription?',
+      message:
+        'Your plan stays active until the end of the current billing period, then your dish links go offline.',
+      confirmLabel: 'Cancel subscription',
+    });
+    if (!confirmed) return;
     setError(null);
     setBusy(true);
     try {
@@ -133,16 +91,15 @@ export function BillingPage() {
     }
   }
 
-  const currency: 'PKR' | 'USD' = subscription
-    ? subscription.gateway === 'safepay'
-      ? 'PKR'
-      : 'USD'
-    : currencyForCountry(billingCountry);
+  const currency: BillingCurrency = subscription?.gateway === 'safepay' ? 'PKR' : 'USD';
+  const hasActivePlan = subscription !== null && subscription.status !== 'canceled';
+  const plansPath = `/restaurants/${restaurantSlug}/billing/plans`;
 
   const checkoutNotice = searchParams.get('checkout') ?? searchParams.get('renewal');
 
   return (
     <AppShell>
+      {confirmDialog}
       <ErrorBanner message={error} />
 
       <div className={s.hero}>
@@ -171,12 +128,12 @@ export function BillingPage() {
         )}
         {subscription && subscription.status === 'expired' && (
           <div className="status-banner banner-expired">
-            <strong>Your menus are offline.</strong> Reactivate below to bring your dish links back
-            online immediately — nothing was deleted.
+            <strong>Your menus are offline.</strong> Reactivate to bring your dish links back online
+            immediately — nothing was deleted.
           </div>
         )}
 
-        {subscription && subscription.status !== 'canceled' ? (
+        {hasActivePlan ? (
           <div className={s.currentPlan}>
             <div>
               <span className={s.currentPlanLabel}>Current plan</span>
@@ -200,114 +157,31 @@ export function BillingPage() {
                 {formatDate(subscription.currentPeriodEnd)}
               </span>
             </div>
-            {subscription.status === 'active' && (
-              <button
-                type="button"
-                className={s.cancelLink}
-                disabled={busy}
-                onClick={() => void handleCancel()}
-              >
-                Cancel subscription
-              </button>
-            )}
+            <div className={s.planLinks}>
+              <Link to={plansPath} className={s.changePlanLink}>
+                Change package →
+              </Link>
+              {subscription.status === 'active' && (
+                <button
+                  type="button"
+                  className={s.cancelLink}
+                  disabled={busy}
+                  onClick={() => void handleCancel()}
+                >
+                  Cancel subscription
+                </button>
+              )}
+            </div>
           </div>
         ) : (
-          <p className={s.noSubscription}>No active subscription yet — choose a plan below.</p>
+          <p className={s.noSubscription}>
+            No active subscription yet.{' '}
+            <Link to={plansPath} className={s.changePlanLink}>
+              Choose a package →
+            </Link>
+          </p>
         )}
       </div>
-
-      <section className={s.section}>
-        <div className={s.sectionHead}>
-          <h2>
-            {subscription && subscription.status !== 'canceled' ? 'Change plan' : 'Choose a plan'}
-          </h2>
-        </div>
-
-        {!subscription || subscription.status === 'canceled' ? (
-          <div className={s.checkoutForm}>
-            <label className={s.field}>
-              Billing country (2-letter code)
-              <input
-                value={billingCountry}
-                maxLength={2}
-                onChange={(e) => setBillingCountry(e.target.value.toUpperCase())}
-                placeholder="PK"
-              />
-            </label>
-            <div className={s.promoRow}>
-              <label className={s.field}>
-                Promo code (optional)
-                <input
-                  value={promoCode}
-                  onChange={(e) => {
-                    setPromoCode(e.target.value);
-                    setPromoPreview(null);
-                    setPromoError(null);
-                  }}
-                  placeholder="SAVE10"
-                />
-              </label>
-              <button
-                type="button"
-                className={s.actionBtn}
-                onClick={() => void handleValidatePromo()}
-              >
-                Apply
-              </button>
-            </div>
-            {promoError && <p className={s.promoError}>{promoError}</p>}
-            {promoPreview && (
-              <p className={s.promoApplied}>
-                "{promoPreview.code}" applied —{' '}
-                {promoPreview.discountType === 'percent'
-                  ? `${promoPreview.amount}% off`
-                  : `${formatMinorUnits(promoPreview.amount, promoPreview.currency ?? currency)} off`}
-              </p>
-            )}
-          </div>
-        ) : null}
-
-        <ul className={s.grid}>
-          {packages.map((pkg) => {
-            const isCurrent =
-              subscription?.status !== 'canceled' && subscription?.packageId === pkg.id;
-            return (
-              <li key={pkg.id} className={s.planCard} data-current={isCurrent || undefined}>
-                <h3 className={s.planName}>{pkg.name}</h3>
-                <p className={s.planPrice}>
-                  {formatMinorUnits(currency === 'PKR' ? pkg.pricePkr : pkg.priceUsd, currency)}
-                  <span className={s.planInterval}>/{pkg.interval}</span>
-                </p>
-                <p className={s.planLimit}>
-                  {pkg.maxItems ? `Up to ${pkg.maxItems} items` : 'Unlimited items'}
-                </p>
-                {isCurrent ? (
-                  <span className={s.planCurrentBadge}>Current plan</span>
-                ) : subscription && subscription.status !== 'canceled' ? (
-                  <button
-                    type="button"
-                    className={`${s.actionBtn} ${s.actionBtnPrimary}`}
-                    disabled={busy}
-                    onClick={() => void handleChangePackage(pkg.id)}
-                  >
-                    Switch to this plan
-                  </button>
-                ) : (
-                  <form onSubmit={(e) => void handleSubscribe(pkg.id, e)}>
-                    <button
-                      type="submit"
-                      className={`${s.actionBtn} ${s.actionBtnPrimary}`}
-                      disabled={busy}
-                    >
-                      Subscribe
-                    </button>
-                  </form>
-                )}
-              </li>
-            );
-          })}
-        </ul>
-      </section>
 
       <section className={s.section}>
         <div className={s.sectionHead}>

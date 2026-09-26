@@ -4,6 +4,7 @@ import { ProtectedRoute } from './components/ProtectedRoute';
 import { AuthProvider } from './context/AuthContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { BillingPage } from './pages/BillingPage';
+import { BillingPlansPage } from './pages/BillingPlansPage';
 import { LoginPage } from './pages/LoginPage';
 import { RestaurantDetailPage } from './pages/RestaurantDetailPage';
 import { RestaurantsPage } from './pages/RestaurantsPage';
@@ -52,6 +53,14 @@ export default function App() {
             element={
               <ProtectedRoute>
                 <BillingPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/restaurants/:slug/billing/plans"
+            element={
+              <ProtectedRoute>
+                <BillingPlansPage />
               </ProtectedRoute>
             }
           />

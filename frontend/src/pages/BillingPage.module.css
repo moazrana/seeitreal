@@ -114,8 +114,26 @@
   font-weight: 600;
 }
 
-.cancelLink {
+.planLinks {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
   margin-left: auto;
+}
+
+.changePlanLink {
+  color: var(--accent-strong);
+  font-weight: 600;
+  font-size: 0.9rem;
+  text-decoration: none;
+}
+
+.changePlanLink:hover {
+  text-decoration: underline;
+}
+
+.cancelLink {
   background: none;
   border: none;
   color: var(--danger);
