@@ -64,7 +64,13 @@ export class RootQaService {
 
     const updated = await this.prisma.menuItem.update({
       where: { id: itemId },
-      data: { arStatus: 'live', qaNote: null },
+      data: {
+        arStatus: 'live',
+        qaNote: null,
+        // First publish issues the dish's QR code; re-approvals after a
+        // regeneration keep the original timestamp.
+        qrIssuedAt: item.qrIssuedAt ?? new Date(),
+      },
     });
     await this.audit.log(
       admin.adminId,

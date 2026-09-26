@@ -277,6 +277,28 @@ describe('MenuItemsService', () => {
       );
     });
 
+    it('leaves a live model (and so its QR/AR page) untouched', async () => {
+      prisma.menuItem.findUnique.mockResolvedValueOnce({
+        id: 1,
+        restaurantId: restaurant.id,
+        arStatus: 'live',
+        modelGlbUrl: 'm.glb',
+        modelUsdzUrl: 'm.usdz',
+        photos: [
+          { id: 10, sortOrder: 0, url: 'p0.webp' },
+          { id: 11, sortOrder: 1, url: 'p1.webp' },
+        ],
+      });
+      prisma.menuItem.update.mockResolvedValueOnce({ id: 1 });
+
+      await service.removePhoto(restaurant.id, 1, 11, owner);
+
+      const [{ data }] = prisma.menuItem.update.mock.calls[0] as [
+        { data: Record<string, unknown> },
+      ];
+      expect(data).toEqual({ photoUrl: 'p0.webp' });
+    });
+
     it('404s when the photo does not belong to this item', async () => {
       prisma.menuItem.findUnique.mockResolvedValueOnce({
         id: 1,

@@ -93,7 +93,11 @@ describe('RootQaService', () => {
 
       expect(prisma.menuItem.update).toHaveBeenCalledWith({
         where: { id: 1 },
-        data: { arStatus: 'live', qaNote: null },
+        data: {
+          arStatus: 'live',
+          qaNote: null,
+          qrIssuedAt: expect.any(Date) as Date,
+        },
       });
       expect(audit.log).toHaveBeenCalledWith(
         admin.adminId,
@@ -102,6 +106,27 @@ describe('RootQaService', () => {
         1,
         undefined,
         '1.2.3.4',
+      );
+    });
+
+    it('keeps the original QR issue date when re-approving a regenerated model', async () => {
+      const issued = new Date('2026-09-01T00:00:00Z');
+      prisma.menuItem.findUnique.mockResolvedValueOnce({
+        id: 1,
+        arStatus: 'qa',
+        modelGlbUrl: 'https://x/model.glb',
+        modelUsdzUrl: 'https://x/model.usdz',
+        widthMm: 260,
+        qrIssuedAt: issued,
+      });
+      prisma.menuItem.update.mockResolvedValueOnce({ id: 1, arStatus: 'live' });
+
+      await service.approve(1, admin, undefined);
+
+      expect(prisma.menuItem.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ qrIssuedAt: issued }) as object,
+        }),
       );
     });
 
