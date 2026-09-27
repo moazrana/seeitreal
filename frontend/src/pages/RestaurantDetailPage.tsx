@@ -19,6 +19,7 @@ import {
   MIN_DIMENSION_CM,
   mmToCmInput,
 } from '../lib/dimensions';
+import { compressDishPhotos } from '../lib/compressImage';
 import { cuisineTabId, matchesCuisine } from '../lib/cuisine';
 import type { CuisineFilter, CuisineTab } from '../lib/cuisine';
 import { errorMessage } from '../lib/errors';
@@ -183,7 +184,8 @@ export function RestaurantDetailPage() {
     setError(null);
     setBusyItemId(item.id);
     try {
-      await menuApi.uploadPhotos(restaurantSlug, item.publicSlug, files);
+      const optimized = await compressDishPhotos(files);
+      await menuApi.uploadPhotos(restaurantSlug, item.publicSlug, optimized);
       loadAll();
     } catch (err) {
       setError(errorMessage(err));

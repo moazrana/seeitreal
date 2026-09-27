@@ -146,8 +146,18 @@ allow-list, and a global exception filter that never leaks internals to clients.
 
 - Uploads (dish photos, restaurant logos) go through the full §7.5 checklist: extension+MIME
   whitelist, real magic-byte verification via image re-decode (not just client-claimed
-  type), size/dimension limits, random server-generated filenames, EXIF stripped by
-  re-encoding, stored outside the web root with no execute permission.
+  type), size/dimension limits (8 MB, 4096 px, plus a decoded-pixel cap against
+  decompression bombs), random server-generated filenames, EXIF stripped by re-encoding, stored
+  outside the web root with no execute permission.
+- Image optimization before Tripo (`documents/TASK-image-optimization.md`): the dashboard
+  pre-compresses each dish photo in the browser (canvas, no extra dependency) to a 2048 px JPEG so
+  multi-MB phone photos don't cross slow mobile networks; it falls back to the original file
+  if the browser can't decode it. The server then re-normalizes every file authoritatively,
+  per purpose (`IMAGE_OUTPUT_PROFILES`): dish photos are EXIF auto-rotated, resized to a
+  2048 px longest edge (never enlarged), flattened onto white and re-encoded as metadata-free
+  JPEG q82. That stored copy is the source of truth and is what Tripo receives. Logos stay
+  WebP (transparency preserved), capped at 1024 px. The 2048 px/q82 target lives in
+  `shared/src/menu.ts`; guardrail tests keep it at or above 1024 px / q80.
 - Storage is pluggable: `local` disk (dev/self-hosted, served read-only via
   `GET /api/uploads/...`) or `s3` (R2-compatible, for production).
 - Tripo integration (spec §11): submit → webhook (shared-secret token, not a documented HMAC

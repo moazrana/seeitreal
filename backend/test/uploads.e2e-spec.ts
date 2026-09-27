@@ -111,9 +111,13 @@ describe('Uploads (e2e)', () => {
     const getRes = await request(app.getHttpServer())
       .get(photoPath)
       .expect(200);
-    expect(getRes.headers['content-type']).toBe('image/webp');
+    // Dish photos are normalized to metadata-free JPEG, the format handed
+    // to Tripo (documents/TASK-image-optimization.md).
+    expect(photoPath).toMatch(/\.jpg$/);
+    expect(getRes.headers['content-type']).toBe('image/jpeg');
     const servedMeta = await sharp(getRes.body as Buffer).metadata();
-    expect(servedMeta.format).toBe('webp');
+    expect(servedMeta.format).toBe('jpeg');
+    expect(servedMeta.exif).toBeUndefined();
   });
 
   it('uploads multiple photos in one request, keeping order, and lets one be removed', async () => {

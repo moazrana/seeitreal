@@ -183,10 +183,11 @@ export class TripoClientService {
     return body;
   }
 
-  /** Declares the *actual* format of the bytes at imageUrl — our own
-   * storage always re-encodes uploads to webp (spec §7.5 EXIF-strip step).
-   * Some third-party docs claim the URL-based `file.type` only accepts
-   * jpg/png, but lying about the declared type risks a decode mismatch if
+  /** Declares the *actual* format of the bytes at imageUrl — dish photos
+   * are re-encoded to JPEG (documents/TASK-image-optimization.md); photos
+   * uploaded before that change are WebP. Some third-party docs claim the
+   * URL-based `file.type` only accepts jpg/png — one reason new photos are
+   * JPEG — but lying about the declared type risks a decode mismatch if
    * Tripo trusts this field over sniffing the bytes; pass the true value
    * and let a real 400 (if any) name the accepted enum, same as the
    * file-shape bug this replaced — not yet confirmed against a live task
