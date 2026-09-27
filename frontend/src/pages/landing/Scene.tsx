@@ -6,32 +6,60 @@ import { useTheme } from '../../context/useTheme';
 import styles from './landing.module.css';
 
 const POINT_COUNT = 1400;
+const GEM_RADIUS = 1.7;
+// Camera distance: the gem (radius 1.7) sits contained with margin at
+// z = 7; narrow or short viewports pull back further so it never crowds
+// the headline. Dolly the camera — never scale the mesh.
+const CAMERA_Z = 7;
+const CAMERA_Z_COMPACT = 9;
+const COMPACT_MAX_WIDTH = 640;
+const COMPACT_MAX_HEIGHT = 560;
+const CAMERA_FOV_DEG = 45;
+// The gem may span at most this share of the viewport's shorter half-axis.
+// The FOV is vertical, so on portrait phones width is the binding axis and
+// a fixed z = 9 still let the gem run edge to edge.
+const MAX_GEM_FILL = 0.6;
+
+function cameraDistanceFor(width: number, height: number): number {
+  const compact = width < COMPACT_MAX_WIDTH || height < COMPACT_MAX_HEIGHT;
+  const halfFovTan = Math.tan(THREE.MathUtils.degToRad(CAMERA_FOV_DEG / 2));
+  const fitDistance = GEM_RADIUS / (MAX_GEM_FILL * halfFovTan * Math.min(1, width / height));
+  return Math.max(compact ? CAMERA_Z_COMPACT : CAMERA_Z, fitDistance);
+}
+
+// The task's light values were authored for three's legacy lighting. Since
+// r155 lights are physically based: punctual intensities must be scaled by
+// π and distance decay switched off to reproduce the same look (three's
+// documented migration). Without this the gem renders near-black — the
+// exact "wireframe only" bug this scene exists to fix.
+const LEGACY_LIGHT_SCALE = Math.PI;
+const KEY_LIGHTS = [
+  { color: 0x4d7cff, position: [-5, 3, 4] },
+  { color: 0x8b5cf6, position: [5, -2, 3] },
+  { color: 0x2dd4bf, position: [0, 4, -4] },
+] as const;
 
 /**
- * The hero's live WebGL scene (spec §3): a wireframe-only icosahedron —
- * "the diamond" — hanging in a starfield of scan points that fills the
- * full page background. The diamond stays a contained, see-through shape
- * (no solid faces, no scene lighting) so it reads as a rotating line-art
- * object rather than a big lit blob covering the hero. Pointer parallax
- * eases the camera toward the cursor; the diamond auto-rotates and floats
- * gently.
+ * The hero's live WebGL scene (documents/TASK-hero-3d-fix.md, design spec
+ * §3): a solid faceted gem with a thin wireframe on top, a scan-point cloud
+ * around it, and three brand-coloured point lights that roll a
+ * blue→violet→teal gradient across the facets as it turns. Pointer parallax
+ * eases the camera toward the cursor.
+ *
+ * Theme-aware (documents/USER-APP-theming.md §5): material and light values
+ * come from `heroSceneTheme` in @ar-menu/shared and are re-applied live on
+ * toggle without rebuilding the scene. Under prefers-reduced-motion the gem
+ * is static — no rotation, float or parallax.
  *
  * Everything created here (geometries, materials, renderer) is disposed on
- * unmount and the render loop's rAF is cancelled, per the porting note in
- * spec §3.
- *
- * Theme-aware (documents/USER-APP-theming.md §5): the canvas is
- * transparent over `--bg`, and the stroke/point colours and opacities come
- * from `heroSceneTheme` in @ar-menu/shared — deeper lines and a fainter
- * point cloud on light pages so the shape neither vanishes nor turns into a
- * smudge. Re-applied live on toggle without rebuilding the scene.
+ * unmount and the render loop's rAF is cancelled.
  */
 export function Scene() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const { resolvedTheme } = useTheme();
   const applyThemeRef = useRef<((theme: HeroSceneTheme) => void) | null>(null);
-  // Read inside the (mount-only) scene effect for the initial colours, so
-  // the first frame is already correct instead of flashing the dark look.
+  // Read inside the (mount-only) scene effect for the initial look, so the
+  // first frame is already correct instead of flashing the dark theme.
   const initialThemeRef = useRef(heroSceneTheme[resolvedTheme]);
 
   useEffect(() => {
@@ -47,26 +75,38 @@ export function Scene() {
     reducedMotionQuery.addEventListener('change', handleMotionChange);
 
     const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
-    camera.position.set(0, 0, 6);
+    const camera = new THREE.PerspectiveCamera(CAMERA_FOV_DEG, 1, 0.1, 100);
+    camera.position.set(0, 0, CAMERA_Z);
 
     const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
-    // The "diamond": just the icosahedron's edges, no filled faces — a
-    // see-through line-art object rather than a solid lit shape.
-    const geometry = new THREE.IcosahedronGeometry(1.9, 0);
-    const edgesGeometry = new THREE.EdgesGeometry(geometry);
-    const edgesMaterial = new THREE.LineBasicMaterial({ transparent: true });
-    const wireframe = new THREE.LineSegments(edgesGeometry, edgesMaterial);
-    scene.add(wireframe);
+    // The gem: a solid faceted icosahedron (detail 0 = flat facets) with a
+    // thin wireframe over it — not instead of it.
+    const group = new THREE.Group();
+    scene.add(group);
+    const gemGeometry = new THREE.IcosahedronGeometry(GEM_RADIUS, 0);
+    const solidMaterial = new THREE.MeshStandardMaterial({ flatShading: true });
+    group.add(new THREE.Mesh(gemGeometry, solidMaterial));
+    const edgesGeometry = new THREE.EdgesGeometry(gemGeometry);
+    const wireMaterial = new THREE.LineBasicMaterial({ transparent: true });
+    group.add(new THREE.LineSegments(edgesGeometry, wireMaterial));
 
-    // Scan point cloud: ~1,400 points in a spherical shell around the
-    // object, evoking an AR scan.
+    const ambientLight = new THREE.AmbientLight();
+    scene.add(ambientLight);
+    const keyLights = KEY_LIGHTS.map(({ color, position: [x, y, z] }) => {
+      const light = new THREE.PointLight(color, 1, 50, 0);
+      light.position.set(x, y, z);
+      scene.add(light);
+      return light;
+    });
+
+    // Scan point cloud: a spherical shell (radius 2.5–4.4) around the gem,
+    // in the scene rather than the group so it counter-rotates.
     const pointsGeometry = new THREE.BufferGeometry();
     const positions = new Float32Array(POINT_COUNT * 3);
     for (let i = 0; i < POINT_COUNT; i++) {
-      const radius = 2.3 + Math.random() * 0.9;
+      const radius = 2.5 + Math.random() * 1.9;
       const theta = Math.random() * Math.PI * 2;
       const phi = Math.acos(2 * Math.random() - 1);
       positions[i * 3] = radius * Math.sin(phi) * Math.cos(theta);
@@ -75,7 +115,7 @@ export function Scene() {
     }
     pointsGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     const pointsMaterial = new THREE.PointsMaterial({
-      size: 0.022,
+      size: 0.035,
       transparent: true,
       sizeAttenuation: true,
     });
@@ -83,17 +123,24 @@ export function Scene() {
     scene.add(points);
 
     const applyTheme = (theme: HeroSceneTheme) => {
-      edgesMaterial.color.setHex(theme.wireColor);
-      edgesMaterial.opacity = theme.wireOpacity;
+      solidMaterial.color.setHex(theme.solidColor);
+      solidMaterial.metalness = theme.solidMetalness;
+      solidMaterial.roughness = theme.solidRoughness;
+      wireMaterial.color.setHex(theme.wireColor);
+      wireMaterial.opacity = theme.wireOpacity;
       pointsMaterial.color.setHex(theme.pointColor);
       pointsMaterial.opacity = theme.pointOpacity;
+      ambientLight.color.setHex(theme.ambientColor);
+      ambientLight.intensity = theme.ambientIntensity * LEGACY_LIGHT_SCALE;
+      keyLights.forEach((light, i) => {
+        light.intensity = theme.lightIntensities[i] * LEGACY_LIGHT_SCALE;
+      });
     };
     applyTheme(initialThemeRef.current);
     applyThemeRef.current = applyTheme;
 
-    // Pointer parallax: camera eases toward the pointer position.
+    // Pointer parallax target, normalized to -1..1 across the hero.
     const pointer = { x: 0, y: 0 };
-    const cameraOffset = { x: 0, y: 0 };
     const handlePointerMove = (event: PointerEvent) => {
       const rect = container.getBoundingClientRect();
       pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
@@ -106,6 +153,7 @@ export function Scene() {
       if (width === 0 || height === 0) return;
       renderer.setSize(width, height, false);
       camera.aspect = width / height;
+      camera.position.z = cameraDistanceFor(width, height);
       camera.updateProjectionMatrix();
     };
     resize();
@@ -115,19 +163,16 @@ export function Scene() {
     let frameId = 0;
     const clock = new THREE.Clock();
     const animate = () => {
-      const elapsed = clock.getElapsedTime();
+      const t = clock.getElapsedTime();
 
       if (!reducedMotion) {
-        wireframe.rotation.y += 0.0028;
-        wireframe.rotation.x += 0.0009;
-        points.rotation.y -= 0.0014;
-        wireframe.position.y = Math.sin(elapsed * 0.6) * 0.08;
+        group.rotation.y = t * 0.18;
+        group.rotation.x = Math.sin(t * 0.4) * 0.12;
+        group.position.y = Math.sin(t * 0.8) * 0.12;
+        points.rotation.y = -t * 0.05;
+        camera.position.x += (pointer.x * 2.2 - camera.position.x) * 0.05;
+        camera.position.y += (-pointer.y * 1.6 - camera.position.y) * 0.05;
       }
-
-      cameraOffset.x += (pointer.x * 0.6 - cameraOffset.x) * 0.05;
-      cameraOffset.y += (-pointer.y * 0.4 - cameraOffset.y) * 0.05;
-      camera.position.x = cameraOffset.x;
-      camera.position.y = cameraOffset.y;
       camera.lookAt(0, 0, 0);
 
       renderer.render(scene, camera);
@@ -142,9 +187,10 @@ export function Scene() {
       window.removeEventListener('pointermove', handlePointerMove);
       reducedMotionQuery.removeEventListener('change', handleMotionChange);
 
-      geometry.dispose();
+      gemGeometry.dispose();
       edgesGeometry.dispose();
-      edgesMaterial.dispose();
+      solidMaterial.dispose();
+      wireMaterial.dispose();
       pointsGeometry.dispose();
       pointsMaterial.dispose();
       renderer.dispose();

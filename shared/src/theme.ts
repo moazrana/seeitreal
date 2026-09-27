@@ -46,6 +46,8 @@ export type ThemeTokens = {
   'focus-ring': string;
   /** Translucent sticky-header background. */
   'header-bg': string;
+  /** Radial scrim behind the hero headline, keeping it legible over the 3D. */
+  'hero-scrim': string;
   danger: string;
   'danger-bg': string;
   'danger-line': string;
@@ -107,6 +109,7 @@ export const themeTokens: Record<Theme, ThemeTokens> = {
     'accent-strong': '#2dd4bf',
     'focus-ring': 'rgba(45, 212, 191, 0.15)',
     'header-bg': 'rgba(10, 11, 20, 0.85)',
+    'hero-scrim': 'rgba(10, 11, 20, 0.72)',
     danger: '#ff6b6b',
     'danger-bg': 'rgba(255, 107, 107, 0.1)',
     'danger-line': 'rgba(255, 107, 107, 0.35)',
@@ -138,6 +141,7 @@ export const themeTokens: Record<Theme, ThemeTokens> = {
     'accent-strong': '#0f766e',
     'focus-ring': 'rgba(15, 118, 110, 0.2)',
     'header-bg': 'rgba(236, 238, 243, 0.85)',
+    'hero-scrim': 'rgba(236, 238, 243, 0.78)',
     danger: '#c92a2a',
     'danger-bg': 'rgba(201, 42, 42, 0.08)',
     'danger-line': 'rgba(201, 42, 42, 0.3)',
@@ -154,20 +158,58 @@ export const themeTokens: Record<Theme, ThemeTokens> = {
 };
 
 /**
- * Three.js hero parameters per theme (§5). The hero is see-through line
- * art, so on a light page it needs *deeper*, not paler, strokes and a
- * fainter point cloud — otherwise it vanishes or reads as a smudge.
+ * Three.js hero parameters per theme (documents/TASK-hero-3d-fix.md,
+ * USER-APP-theming.md §5). The hero is a solid faceted gem, a thin
+ * wireframe over it and a point cloud around it, lit by three brand-colour
+ * point lights so a blue→violet→teal gradient rolls across the facets.
+ *
+ * Dark uses the task's exact values. Light lightens the gem (a dark gem on
+ * a white page reads as a hole) and softens the cloud and wire, per the
+ * theming spec's "much subtler in light mode" rule.
+ *
+ * Light intensities are the task's reference values (written for three's
+ * legacy lighting). Scene.tsx converts them for three ≥ r155's physically
+ * based lights — don't pre-scale them here.
  */
 export interface HeroSceneTheme {
+  solidColor: number;
+  solidMetalness: number;
+  solidRoughness: number;
   wireColor: number;
   wireOpacity: number;
   pointColor: number;
   pointOpacity: number;
+  ambientColor: number;
+  ambientIntensity: number;
+  /** Blue, violet and teal key lights, in that order. */
+  lightIntensities: [number, number, number];
 }
 
 export const heroSceneTheme: Record<Theme, HeroSceneTheme> = {
-  dark: { wireColor: 0x9db4ff, wireOpacity: 0.55, pointColor: 0x4d7cff, pointOpacity: 0.5 },
-  light: { wireColor: 0x3d63e0, wireOpacity: 0.45, pointColor: 0x4d7cff, pointOpacity: 0.28 },
+  dark: {
+    solidColor: 0x151827,
+    solidMetalness: 0.55,
+    solidRoughness: 0.28,
+    wireColor: 0x8b5cf6,
+    wireOpacity: 0.35,
+    pointColor: 0x4d7cff,
+    pointOpacity: 0.7,
+    ambientColor: 0x404050,
+    ambientIntensity: 0.6,
+    lightIntensities: [1.2, 1.3, 1.0],
+  },
+  light: {
+    solidColor: 0xc9cfe6,
+    solidMetalness: 0.35,
+    solidRoughness: 0.35,
+    wireColor: 0x7c3aed,
+    wireOpacity: 0.3,
+    pointColor: 0x4d7cff,
+    pointOpacity: 0.35,
+    ambientColor: 0xffffff,
+    ambientIntensity: 0.7,
+    lightIntensities: [1.0, 1.1, 0.9],
+  },
 };
 
 /** <model-viewer> exposure per theme (§5) — a touch brighter on light pages. */

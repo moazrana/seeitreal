@@ -224,6 +224,12 @@
   display: none;
 }
 
+/* Theme toggle lives in the nav bar on wide screens and inside the menu
+ * panel on phones, where the bar has no room for it. */
+.navThemeMobile {
+  display: none;
+}
+
 @media (max-width: 760px) {
   .navLinks {
     position: fixed;
@@ -265,6 +271,23 @@
   .navToggle {
     display: inline-flex;
   }
+
+  /* Qualified so it outranks the toggle's own display rule regardless of
+   * stylesheet order. */
+  .navCta .navThemeDesktop {
+    display: none;
+  }
+
+  .navThemeMobile {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px 6px;
+    margin-top: 4px;
+    border-top: 1px solid var(--border);
+    color: var(--text-muted);
+    font-size: 14.5px;
+  }
 }
 
 /* ---------- Hero ---------- */
@@ -284,6 +307,18 @@
   position: relative;
   z-index: 2;
   width: 100%;
+}
+
+/* Radial scrim behind the headline (documents/TASK-hero-3d-fix.md §4): the
+ * copy stays legible over the gem at every rotation angle. The colour is a
+ * theme token, so light mode gets a light scrim rather than a dark smudge. */
+.heroInner::before {
+  content: '';
+  position: absolute;
+  inset: -8% -12%;
+  z-index: -1;
+  background: radial-gradient(ellipse 70% 70% at 50% 50%, var(--hero-scrim), transparent 70%);
+  pointer-events: none;
 }
 
 .heroPill {

@@ -332,6 +332,12 @@ Light and dark mode per `documents/USER-APP-theming.md`:
   `prefers-color-scheme` in pure CSS. `/api/static/ar-viewer-theme.js` (same-origin, so the
   viewer CSP stays `script-src 'self'`) swaps `<model-viewer>`'s `exposure` and
   `environment-image` for the active theme.
+- **Hero 3D** (`documents/TASK-hero-3d-fix.md`): a solid faceted gem with a wireframe overlay and
+  point cloud, lit by three brand-colour point lights. Per-theme material and light values live in
+  `heroSceneTheme`. They're the task's reference values; `Scene.tsx` scales them by π with
+  distance decay off, to match on three's physically based lights (r155+). The camera distance is
+  computed from the viewport's aspect ratio so the gem never fills more than 60% of the shorter
+  axis, and a radial `--hero-scrim` keeps the headline legible.
 - **Contrast:** `npm run test -w shared` asserts WCAG AA for text on every surface in both
   themes. (The spec's light `--text-faint` was nudged from `#868ca0` to `#7f859a` to clear 3:1
   on `--surface-2`.)

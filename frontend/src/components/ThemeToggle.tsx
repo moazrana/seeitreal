@@ -1,3 +1,4 @@
+import { useId } from 'react';
 import { THEME_PREFERENCES } from '@ar-menu/shared';
 import type { ThemePreference } from '@ar-menu/shared';
 import { useTheme } from '../context/useTheme';
@@ -51,6 +52,9 @@ function Icon({ preference }: { preference: ThemePreference }) {
  */
 export function ThemeToggle({ className }: { className?: string }) {
   const { preference, setPreference } = useTheme();
+  // Unique per instance: radios sharing a name form one group document-
+  // wide, so two toggles on a page (nav + mobile menu) would fight.
+  const groupName = useId();
 
   return (
     <fieldset className={`${styles.toggle} ${className ?? ''}`}>
@@ -59,7 +63,7 @@ export function ThemeToggle({ className }: { className?: string }) {
         <label key={option} className={styles.option} title={LABELS[option]}>
           <input
             type="radio"
-            name="seeitreal-theme"
+            name={groupName}
             value={option}
             checked={preference === option}
             onChange={() => setPreference(option)}
