@@ -131,7 +131,27 @@ def node_transform_matrix(node):
     return ms * mr * mt
 
 
-def build_material(stage, mat_path, gltf_material, texture_files):
+def image_file_for_texture(gltf, texture_files, texture_index):
+    """Resolves a material's texture reference to its image file.
+
+    A material's `{"index": n}` points into gltf['textures'], and each
+    texture names its image via `source` — the two arrays are NOT in the
+    same order in general (Tripo's GLBs map texture 1 -> image 2 and
+    texture 2 -> image 1). Indexing the image list directly with the
+    texture index fed the normal map into the metallic/roughness slot:
+    a normal map's blue channel is ~1.0, so every dish rendered fully
+    metallic ("chrome") in iOS AR Quick Look.
+    """
+    texture = gltf['textures'][texture_index]
+    source = texture.get('source')
+    if source is None:
+        # e.g. EXT_texture_webp / KHR_texture_basisu keep the source in an
+        # extension. Refuse rather than silently bind the wrong image.
+        raise ValueError('texture %d has no core `source` image' % texture_index)
+    return texture_files[source]
+
+
+def build_material(stage, mat_path, gltf, gltf_material, texture_files):
     material = UsdShade.Material.Define(stage, mat_path)
     shader = UsdShade.Shader.Define(stage, mat_path.AppendChild('PreviewSurface'))
     shader.CreateIdAttr('UsdPreviewSurface')
@@ -145,7 +165,7 @@ def build_material(stage, mat_path, gltf_material, texture_files):
     pbr = gltf_material.get('pbrMetallicRoughness', {})
 
     def make_texture_node(name, tex_ref, colorspace=None, scale=None, bias=None):
-        image_file = texture_files[tex_ref['index']]
+        image_file = image_file_for_texture(gltf, texture_files, tex_ref['index'])
         tex = UsdShade.Shader.Define(stage, mat_path.AppendChild(name))
         tex.CreateIdAttr('UsdUVTexture')
         tex.CreateInput('file', Sdf.ValueTypeNames.Asset).Set('./' + image_file)
@@ -255,7 +275,7 @@ def convert(gltf_path, output_path):
     materials_by_index = {}
     for i, m in enumerate(gltf.get('materials', [])):
         mat_path = root_path.AppendChild('Materials').AppendChild('mat_%d' % i)
-        materials_by_index[i] = build_material(stage, mat_path, m, texture_files)
+        materials_by_index[i] = build_material(stage, mat_path, gltf, m, texture_files)
 
     node_counter = [0]
 

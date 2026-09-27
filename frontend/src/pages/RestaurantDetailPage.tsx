@@ -1,24 +1,34 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ChangeEvent, FormEvent } from 'react';
 import { Link, useParams } from 'react-router-dom';
+import { analyticsApi } from '../api/analytics';
 import { billingApi } from '../api/billing';
+import { ApiError } from '../api/client';
 import { menuApi } from '../api/menu';
 import { restaurantsApi } from '../api/restaurants';
-import type { MenuCategory, MenuItem, Restaurant, Subscription } from '../api/types';
+import type {
+  ItemScanCount,
+  MenuCategory,
+  MenuItem,
+  Restaurant,
+  Subscription,
+} from '../api/types';
 import { AppShell } from '../components/AppShell';
 import { CuisineTabs } from '../components/CuisineTabs';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { PhotoCaptureGuide } from '../components/PhotoCaptureGuide';
 import { QrCodeModal } from '../components/QrCodeModal';
 import { useConfirm } from '../hooks/useConfirm';
+import { useFeedback } from '../hooks/useFeedback';
 import { useLiveRefresh } from '../hooks/useLiveRefresh';
 import {
-  cmInputToMm,
   formatDimensions,
-  MAX_DIMENSION_CM,
-  MIN_DIMENSION_CM,
-  mmToCmInput,
+  inchInputToMm,
+  MAX_DIMENSION_IN,
+  MIN_DIMENSION_IN,
+  mmToInchInput,
 } from '../lib/dimensions';
+import { compressDishPhotos } from '../lib/compressImage';
 import { cuisineTabId, matchesCuisine } from '../lib/cuisine';
 import type { CuisineFilter, CuisineTab } from '../lib/cuisine';
 import { errorMessage } from '../lib/errors';
@@ -40,6 +50,18 @@ const IDLE_REFRESH_MS = 20_000;
 
 const ITEMS_PANEL_ID = 'cuisine-items-panel';
 
+function toScanMap(scans: ItemScanCount[]): Map<number, number> {
+  return new Map(scans.map((s) => [s.itemId, s.scans]));
+}
+
+function formatScans(count: number): string {
+  return `${count} QR scan${count === 1 ? '' : 's'}`;
+}
+
+function isConflict(err: unknown): boolean {
+  return err instanceof ApiError && err.status === 409;
+}
+
 function isInProgress(item: MenuItem): boolean {
   return item.arStatus === 'generating' || item.arStatus === 'qa';
 }
@@ -56,6 +78,8 @@ export function RestaurantDetailPage() {
   const [qrItem, setQrItem] = useState<MenuItem | null>(null);
   const [cuisineFilter, setCuisineFilter] = useState<CuisineFilter>('all');
   const { confirm, confirmDialog } = useConfirm();
+  const { showFeedback, feedbackDialog } = useFeedback();
+  const [scansByItem, setScansByItem] = useState<Map<number, number>>(new Map());
   // Monotonic id per data load, so a slow response can never overwrite
   // newer state (e.g. a background refresh landing after a delete).
   const loadSeq = useRef(0);
@@ -63,9 +87,9 @@ export function RestaurantDetailPage() {
   const [categoryName, setCategoryName] = useState('');
   const [itemName, setItemName] = useState('');
   const [itemCategoryId, setItemCategoryId] = useState('');
-  const [itemWidthCm, setItemWidthCm] = useState('');
-  const [itemHeightCm, setItemHeightCm] = useState('');
-  const [itemLengthCm, setItemLengthCm] = useState('');
+  const [itemWidthIn, setItemWidthIn] = useState('');
+  const [itemHeightIn, setItemHeightIn] = useState('');
+  const [itemLengthIn, setItemLengthIn] = useState('');
 
   function loadAll() {
     const seq = ++loadSeq.current;
@@ -74,13 +98,15 @@ export function RestaurantDetailPage() {
       menuApi.listCategories(restaurantSlug),
       menuApi.listItems(restaurantSlug),
       billingApi.getSubscription(restaurantSlug),
+      analyticsApi.itemScans(restaurantSlug),
     ])
-      .then(([r, c, i, sub]) => {
+      .then(([r, c, i, sub, scans]) => {
         if (seq !== loadSeq.current) return;
         setRestaurant(r);
         setCategories(c);
         setItems(i);
         setSubscription(sub);
+        setScansByItem(toScanMap(scans));
       })
       .catch((err: unknown) => setError(errorMessage(err)));
   }
@@ -92,13 +118,15 @@ export function RestaurantDetailPage() {
   // to the next tick rather than flashing the error banner.
   const refreshLive = useCallback(async () => {
     const seq = ++loadSeq.current;
-    const [i, sub] = await Promise.all([
+    const [i, sub, scans] = await Promise.all([
       menuApi.listItems(restaurantSlug),
       billingApi.getSubscription(restaurantSlug),
+      analyticsApi.itemScans(restaurantSlug),
     ]);
     if (seq !== loadSeq.current) return;
     setItems(i);
     setSubscription(sub);
+    setScansByItem(toScanMap(scans));
   }, [restaurantSlug]);
 
   useLiveRefresh(refreshLive, {
@@ -114,7 +142,15 @@ export function RestaurantDetailPage() {
       setCategoryName('');
       loadAll();
     } catch (err) {
-      setError(errorMessage(err));
+      if (isConflict(err)) {
+        showFeedback({
+          tone: 'warning',
+          title: 'Cuisine type already exists',
+          message: `"${categoryName.trim()}" is already one of your cuisine types — pick it from the list instead.`,
+        });
+      } else {
+        setError(errorMessage(err));
+      }
     }
   }
 
@@ -144,18 +180,31 @@ export function RestaurantDetailPage() {
       await menuApi.createItem(restaurantSlug, {
         name: itemName,
         categoryId: itemCategoryId ? Number(itemCategoryId) : undefined,
-        widthMm: cmInputToMm(itemWidthCm),
-        heightMm: cmInputToMm(itemHeightCm),
-        lengthMm: cmInputToMm(itemLengthCm),
+        widthMm: inchInputToMm(itemWidthIn),
+        heightMm: inchInputToMm(itemHeightIn),
+        lengthMm: inchInputToMm(itemLengthIn),
+      });
+      showFeedback({
+        tone: 'success',
+        title: 'Dish added',
+        message: `"${itemName.trim()}" is on your menu. Upload photos to generate its 3D model.`,
       });
       setItemName('');
       setItemCategoryId('');
-      setItemWidthCm('');
-      setItemHeightCm('');
-      setItemLengthCm('');
+      setItemWidthIn('');
+      setItemHeightIn('');
+      setItemLengthIn('');
       loadAll();
     } catch (err) {
-      setError(errorMessage(err));
+      if (isConflict(err)) {
+        showFeedback({
+          tone: 'warning',
+          title: 'Already on your menu',
+          message: `A dish named "${itemName.trim()}" already exists in this restaurant. Give it a different name.`,
+        });
+      } else {
+        setError(errorMessage(err));
+      }
     }
   }
 
@@ -183,7 +232,8 @@ export function RestaurantDetailPage() {
     setError(null);
     setBusyItemId(item.id);
     try {
-      await menuApi.uploadPhotos(restaurantSlug, item.publicSlug, files);
+      const optimized = await compressDishPhotos(files);
+      await menuApi.uploadPhotos(restaurantSlug, item.publicSlug, optimized);
       loadAll();
     } catch (err) {
       setError(errorMessage(err));
@@ -237,9 +287,9 @@ export function RestaurantDetailPage() {
     setBusyItemId(item.id);
     try {
       await menuApi.updateItem(restaurantSlug, item.publicSlug, {
-        widthMm: cmInputToMm(field('widthCm')),
-        heightMm: cmInputToMm(field('heightCm')),
-        lengthMm: cmInputToMm(field('lengthCm')),
+        widthMm: inchInputToMm(field('widthIn')),
+        heightMm: inchInputToMm(field('heightIn')),
+        lengthMm: inchInputToMm(field('lengthIn')),
       });
       loadAll();
     } catch (err) {
@@ -286,6 +336,7 @@ export function RestaurantDetailPage() {
   return (
     <AppShell>
       {confirmDialog}
+      {feedbackDialog}
       {qrItem && (
         <QrCodeModal
           title={qrItem.name}
@@ -303,6 +354,9 @@ export function RestaurantDetailPage() {
       <div className={s.hero}>
         <div className={s.heroGlow} aria-hidden="true" />
         <div className={s.heroLinks}>
+          <Link to="/restaurants" className={`${s.backLink} ${s.dashboardLink}`}>
+            ← All restaurants
+          </Link>
           <Link to={`/restaurants/${restaurantSlug}/billing`} className={s.backLink}>
             Billing →
           </Link>
@@ -431,42 +485,49 @@ export function RestaurantDetailPage() {
                 </div>
                 <div className={s.dishBody}>
                   <h3 className={s.dishName}>{item.name}</h3>
-                  <p className={s.dishDims}>{formatDimensions(item) ?? 'No dimensions set yet'}</p>
+                  <p className={s.dishDims}>
+                    {formatDimensions(item) ?? 'No dimensions — shown at 10-inch plate size'}
+                  </p>
+                  {item.qrIssuedAt && (
+                    <p className={s.dishScans}>
+                      {formatScans(scansByItem.get(item.id) ?? 0)}
+                    </p>
+                  )}
                   <form
                     className={s.dishDimForm}
                     onSubmit={(e) => void handleSaveDimensions(item, e)}
                   >
                     <input
-                      name="widthCm"
+                      name="widthIn"
                       type="number"
-                      min={MIN_DIMENSION_CM}
-                      max={MAX_DIMENSION_CM}
+                      min={MIN_DIMENSION_IN}
+                      max={MAX_DIMENSION_IN}
                       step={0.1}
-                      placeholder="Width (cm)"
-                      aria-label="Width in centimetres"
-                      defaultValue={mmToCmInput(item.widthMm)}
+                      placeholder="Width (in)"
+                      aria-label="Width in inches"
+                      defaultValue={mmToInchInput(item.widthMm)}
                       disabled={busyItemId === item.id}
                     />
                     <input
-                      name="heightCm"
+                      name="heightIn"
                       type="number"
-                      min={MIN_DIMENSION_CM}
-                      max={MAX_DIMENSION_CM}
+                      min={MIN_DIMENSION_IN}
+                      max={MAX_DIMENSION_IN}
                       step={0.1}
-                      placeholder="Height (cm)"
-                      aria-label="Height in centimetres"
-                      defaultValue={mmToCmInput(item.heightMm)}
+                      placeholder="Height (in)"
+                      aria-label="Height in inches"
+                      defaultValue={mmToInchInput(item.heightMm)}
                       disabled={busyItemId === item.id}
                     />
                     <input
-                      name="lengthCm"
+                      name="lengthIn"
                       type="number"
-                      min={MIN_DIMENSION_CM}
-                      max={MAX_DIMENSION_CM}
+                      min={MIN_DIMENSION_IN}
+                      max={MAX_DIMENSION_IN}
                       step={0.1}
-                      placeholder="Length (cm)"
-                      aria-label="Length in centimetres"
-                      defaultValue={mmToCmInput(item.lengthMm)}
+                      placeholder="Length (in)"
+                      aria-label="Length in inches"
+                      defaultValue={mmToInchInput(item.lengthMm)}
                       disabled={busyItemId === item.id}
                     />
                     <button type="submit" className="link-button" disabled={busyItemId === item.id}>
@@ -515,40 +576,29 @@ export function RestaurantDetailPage() {
                       type="button"
                       className={`${s.actionBtn} ${s.actionBtnPrimary}`}
                       disabled={
-                        !item.photoUrl ||
-                        !item.widthMm ||
-                        item.arStatus !== 'pending' ||
-                        busyItemId === item.id
+                        !item.photoUrl || item.arStatus !== 'pending' || busyItemId === item.id
                       }
                       onClick={() => void handleGenerateModel(item)}
                       title={
                         !item.photoUrl
                           ? 'Upload a photo first'
-                          : !item.widthMm
-                            ? 'Enter the dish width first'
-                            : item.photos.length >= 2
-                              ? `Generates from all ${Math.min(item.photos.length, 4)} photos (multiview)`
-                              : undefined
+                          : item.photos.length >= 2
+                            ? `Generates from all ${Math.min(item.photos.length, 4)} photos (multiview)`
+                            : undefined
                       }
                     >
                       Generate 3D model
                     </button>
                     <label
                       className={s.actionBtn}
-                      title={
-                        !item.widthMm
-                          ? 'Enter the dish width first'
-                          : 'Upload a finished .glb instead of generating one (hero dishes)'
-                      }
+                      title="Upload a finished .glb instead of generating one (hero dishes)"
                     >
                       Upload finished GLB
                       <input
                         type="file"
                         accept=".glb,model/gltf-binary"
                         hidden
-                        disabled={
-                          !item.widthMm || item.arStatus !== 'pending' || busyItemId === item.id
-                        }
+                        disabled={item.arStatus !== 'pending' || busyItemId === item.id}
                         onChange={(e) => void handleModelChange(item, e)}
                       />
                     </label>
@@ -609,44 +659,43 @@ export function RestaurantDetailPage() {
               </select>
             </label>
             <label>
-              Width (cm)
+              Width (in)
               <input
                 type="number"
-                min={MIN_DIMENSION_CM}
-                max={MAX_DIMENSION_CM}
+                min={MIN_DIMENSION_IN}
+                max={MAX_DIMENSION_IN}
                 step={0.1}
-                value={itemWidthCm}
-                onChange={(e) => setItemWidthCm(e.target.value)}
-                placeholder="e.g. 26 for a 26 cm plate"
+                value={itemWidthIn}
+                onChange={(e) => setItemWidthIn(e.target.value)}
+                placeholder="e.g. 10 for a 10-inch plate"
               />
             </label>
             <label>
-              Height (cm)
+              Height (in)
               <input
                 type="number"
-                min={MIN_DIMENSION_CM}
-                max={MAX_DIMENSION_CM}
+                min={MIN_DIMENSION_IN}
+                max={MAX_DIMENSION_IN}
                 step={0.1}
-                value={itemHeightCm}
-                onChange={(e) => setItemHeightCm(e.target.value)}
+                value={itemHeightIn}
+                onChange={(e) => setItemHeightIn(e.target.value)}
               />
             </label>
             <label>
-              Length (cm)
+              Length (in)
               <input
                 type="number"
-                min={MIN_DIMENSION_CM}
-                max={MAX_DIMENSION_CM}
+                min={MIN_DIMENSION_IN}
+                max={MAX_DIMENSION_IN}
                 step={0.1}
-                value={itemLengthCm}
-                onChange={(e) => setItemLengthCm(e.target.value)}
+                value={itemLengthIn}
+                onChange={(e) => setItemLengthIn(e.target.value)}
               />
             </label>
           </div>
           <p className={s.addDishNote}>
-            Measure the dish as served, in centimetres (a 26 cm plate is 26). Dimensions can be added
-            later, but width is required before generating a 3D model — the model is scaled to exactly
-            this size in AR.
+            Optional: measure the dish as served, in inches (up to 20). With dimensions, the 3D model
+            appears at exactly that size in AR; without them it's shown at a typical 10-inch plate size.
           </p>
           <button type="submit" className={s.addDishSubmit}>
             Add dish

@@ -9,6 +9,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { RestaurantsService } from '../restaurants/restaurants.service';
 import { StorageService } from '../storage/storage.service';
 import type { AuthenticatedUser } from '../auth/types/authenticated-user.interface';
+import { ModelOptimizationService } from './model-optimization.service';
 import { ModelScalingService } from './model-scaling.service';
 import { TripoClientService } from './tripo-client.service';
 import { UsdzConversionService } from './usdz-conversion.service';
@@ -36,6 +37,7 @@ export class TripoGenerationService {
     private readonly storage: StorageService,
     private readonly usdz: UsdzConversionService,
     private readonly modelScaling: ModelScalingService,
+    private readonly modelOptimization: ModelOptimizationService,
     private readonly config: ConfigService,
   ) {}
 
@@ -63,14 +65,6 @@ export class TripoGenerationService {
     if (photoUrls.length === 0) {
       throw new BadRequestException(
         'Upload a photo before generating a 3D model',
-      );
-    }
-    // Real-world width is required up front so the pipeline can always
-    // scale the model it produces (documents/TASK-real-world-ar-sizing.md)
-    // — a generated-but-unscaled model should never exist.
-    if (!item.widthMm) {
-      throw new BadRequestException(
-        'Enter the dish width before generating a 3D model',
       );
     }
     // The item's own status is the debounce/guard (spec §7.4): only a
@@ -169,35 +163,36 @@ export class TripoGenerationService {
     let glbBuffer = await this.downloadToBuffer(result.output.modelUrl);
 
     // Tripo returns models at an arbitrary normalized scale — resize to
-    // the dish's true real-world width before anything else touches the
-    // GLB, so both the hosted GLB and the USDZ derived from it are
-    // life-size (documents/TASK-real-world-ar-sizing.md). triggerGeneration
-    // requires widthMm before a job can even be submitted, so this should
-    // always be set here; the `if` is defense in depth, not the norm.
-    if (item.widthMm) {
-      try {
-        glbBuffer = await this.modelScaling.scaleToRealSize(glbBuffer, {
-          widthMm: item.widthMm,
-          lengthMm: item.lengthMm,
-        });
-      } catch (err) {
-        this.logger.error(
-          `Real-world scaling failed for task ${result.taskId}: ${String(err)}`,
-        );
-        await this.prisma.menuItem.update({
-          where: { id: item.id },
-          data: {
-            arStatus: 'qa',
-            qaNote: `3D generation succeeded but real-world scaling failed (task ${result.taskId}). See server logs.`,
-          },
-        });
-        return;
-      }
-    } else {
-      this.logger.warn(
-        `Item ${item.id} has no width_mm — Tripo task ${result.taskId}'s model will not be real-world scaled`,
+    // the dish's real footprint before anything else touches the GLB, so
+    // both the hosted GLB and the USDZ derived from it are life-size
+    // (documents/TASK-real-world-ar-sizing.md). Dimensions are optional:
+    // without them the model gets the default plate-sized footprint rather
+    // than Tripo's arbitrary (often metre-scale) size.
+    try {
+      glbBuffer = await this.modelScaling.scaleToRealSize(glbBuffer, {
+        widthMm: item.widthMm,
+        lengthMm: item.lengthMm,
+      });
+    } catch (err) {
+      this.logger.error(
+        `Real-world scaling failed for task ${result.taskId}: ${String(err)}`,
       );
+      await this.prisma.menuItem.update({
+        where: { id: item.id },
+        data: {
+          arStatus: 'qa',
+          qaNote: `3D generation succeeded but real-world scaling failed (task ${result.taskId}). See server logs.`,
+        },
+      });
+      return;
     }
+
+    // ~1.4M triangles -> ~150k: the difference between a slow and a fast
+    // AR load on phones. Before USDZ conversion, so iOS benefits too.
+    glbBuffer = await this.modelOptimization.optimizeOrOriginal(
+      glbBuffer,
+      `Tripo task ${result.taskId}`,
+    );
 
     const { url: modelGlbUrl } = await this.storage.putObject({
       key: this.storage.generateKey('model-glb', 'glb'),

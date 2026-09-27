@@ -9,12 +9,14 @@ import {
   MinLength,
 } from 'class-validator';
 import { MAX_DIMENSION_MM, MIN_DIMENSION_MM } from '@ar-menu/shared';
+import { Trim } from '../../common/decorators/trim.decorator';
 
 export class CreateMenuItemDto {
   @IsOptional()
   @IsInt()
   categoryId?: number;
 
+  @Trim()
   @IsString()
   @MinLength(1)
   @MaxLength(200)
@@ -34,13 +36,10 @@ export class CreateMenuItemDto {
   photoUrl?: string;
 
   // Real-world dish dimensions in millimetres (TASK-real-world-ar-sizing.md
-  // §1-2). Optional at creation, but TripoGenerationService requires
-  // widthMm before it will start a 3D-generation job, and AdminService
-  // requires it again before an item can go live. Upper bound of 5000mm
-  // (5m) per the task spec — comfortably covers any dish/product while
-  // rejecting garbage input. Lower bound of 10mm (1cm): nothing served on
-  // a menu is smaller, and a 5mm entry on staging produced a half-
-  // centimetre AR dish (a cm/inch value typed into a mm field).
+  // §1-2), entered by owners in inches. All optional — a model generated
+  // without them is scaled to DEFAULT_FOOTPRINT_MM. Bounds: 10mm floor
+  // (a 5mm entry on staging produced a half-centimetre AR dish) and a
+  // 20-inch (508mm) ceiling — nothing served on a menu is bigger.
   @IsOptional()
   @IsInt()
   @Min(MIN_DIMENSION_MM)

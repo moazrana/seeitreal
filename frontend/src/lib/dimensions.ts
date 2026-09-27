@@ -1,20 +1,23 @@
-import { MAX_DIMENSION_MM, MIN_DIMENSION_MM } from '@ar-menu/shared';
+import { MAX_DIMENSION_MM, MIN_DIMENSION_MM, MM_PER_INCH } from '@ar-menu/shared';
 
-// Owners enter sizes in centimetres (the natural unit for a dish — typing
-// "26" into a millimetre field produced a 2.6 cm AR model); the API stores
-// whole millimetres. Bounds mirror the server's DTO for UX only.
-export const MIN_DIMENSION_CM = MIN_DIMENSION_MM / 10;
-export const MAX_DIMENSION_CM = MAX_DIMENSION_MM / 10;
+// Owners enter dish sizes in inches; the API stores whole millimetres.
+// Bounds mirror the server's DTO for UX only (0.4"–20").
+export const MIN_DIMENSION_IN = Math.ceil((MIN_DIMENSION_MM / MM_PER_INCH) * 10) / 10;
+export const MAX_DIMENSION_IN = MAX_DIMENSION_MM / MM_PER_INCH;
 
-export function mmToCmInput(mm: number | null): string {
-  return mm === null ? '' : String(mm / 10);
+function mmToInches(mm: number): number {
+  return Math.round((mm / MM_PER_INCH) * 10) / 10;
+}
+
+export function mmToInchInput(mm: number | null): string {
+  return mm === null ? '' : String(mmToInches(mm));
 }
 
 /** Empty input → undefined (field left unset); otherwise whole mm. */
-export function cmInputToMm(value: string): number | undefined {
+export function inchInputToMm(value: string): number | undefined {
   const trimmed = value.trim();
   if (!trimmed) return undefined;
-  return Math.round(Number(trimmed) * 10);
+  return Math.round(Number(trimmed) * MM_PER_INCH);
 }
 
 export function formatDimensions(dims: {
@@ -24,5 +27,5 @@ export function formatDimensions(dims: {
 }): string | null {
   const parts = [dims.widthMm, dims.heightMm, dims.lengthMm];
   if (parts.every((v) => v === null)) return null;
-  return parts.map((v) => (v === null ? '?' : (v / 10).toFixed(1))).join(' × ') + ' cm (W×H×L)';
+  return parts.map((v) => (v === null ? '?' : mmToInches(v).toFixed(1))).join(' × ') + ' in (W×H×L)';
 }

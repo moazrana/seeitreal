@@ -1,4 +1,8 @@
-import { buildThemeCss, modelViewerExposure } from '@ar-menu/shared';
+import {
+  buildThemeCss,
+  MM_PER_INCH,
+  modelViewerExposure,
+} from '@ar-menu/shared';
 import type { Theme } from '@ar-menu/shared';
 import { escapeHtml } from '../common/utils/html-escape.util';
 
@@ -118,12 +122,19 @@ ${THEME_CSS}
 
 /** Real-world size caption — only shown once dimensions are set (spec:
  * TASK-real-world-ar-sizing.md §4, "only show it when the item has
- * dimensions"). Stored in mm, shown in cm as the more natural unit. */
+ * dimensions"). Stored in mm; shown in inches (the unit owners enter)
+ * with centimetres alongside. Values are numbers from the DB, never
+ * free text, so nothing here needs escaping. */
 function renderDimensionsCaption(item: ViewerItem): string {
   if (!item.widthMm && !item.heightMm && !item.lengthMm) return '';
-  const toCm = (mm: number | null) =>
-    mm === null ? '?' : (mm / 10).toFixed(1);
-  return `<div class="dimensions">📏 True size: ${toCm(item.widthMm)} × ${toCm(item.heightMm)} × ${toCm(item.lengthMm)} cm (W×H×L)</div>`;
+  const dims = [item.widthMm, item.heightMm, item.lengthMm];
+  const inches = dims
+    .map((mm) => (mm === null ? '?' : (mm / MM_PER_INCH).toFixed(1)))
+    .join(' × ');
+  const cm = dims
+    .map((mm) => (mm === null ? '?' : String(Math.round(mm / 10))))
+    .join(' × ');
+  return `<div class="dimensions">📏 True size: ${inches} in (${cm} cm) W×H×L</div>`;
 }
 
 export function renderItemPage(

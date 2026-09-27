@@ -1,4 +1,8 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { UserRole } from '@ar-menu/shared';
 import { PrismaService } from '../prisma/prisma.service';
@@ -13,6 +17,7 @@ describe('MenuItemsService', () => {
       create: jest.Mock;
       findMany: jest.Mock;
       findUnique: jest.Mock;
+      findFirst: jest.Mock;
       update: jest.Mock;
       delete: jest.Mock;
     };
@@ -35,6 +40,8 @@ describe('MenuItemsService', () => {
         create: jest.fn(),
         findMany: jest.fn(),
         findUnique: jest.fn(),
+        // No same-named dish by default.
+        findFirst: jest.fn().mockResolvedValue(null),
         update: jest.fn(),
         delete: jest.fn(),
       },
@@ -222,6 +229,37 @@ describe('MenuItemsService', () => {
       await expect(
         service.addPhotos(restaurant.id, 1, owner, [makeFile('a')]),
       ).rejects.toBeInstanceOf(NotFoundException);
+    });
+  });
+
+  describe('duplicate dish names (mango points 2)', () => {
+    it('rejects adding a dish whose name is already on the menu, with a 409', async () => {
+      prisma.menuItem.findFirst.mockResolvedValueOnce({ id: 3 });
+
+      await expect(
+        service.create(restaurant.id, owner, { name: 'Chicken Karahi' }),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(prisma.menuItem.findFirst).toHaveBeenCalledWith({
+        where: { restaurantId: restaurant.id, name: 'Chicken Karahi' },
+        select: { id: true },
+      });
+      expect(prisma.menuItem.create).not.toHaveBeenCalled();
+    });
+
+    it('allows renaming a dish to its own current name, excluding itself from the check', async () => {
+      prisma.menuItem.findUnique.mockResolvedValueOnce({
+        id: 7,
+        restaurantId: restaurant.id,
+      });
+      prisma.menuItem.update.mockResolvedValueOnce({ id: 7 });
+
+      await service.update(restaurant.id, 7, owner, { name: 'Raita' });
+
+      expect(prisma.menuItem.findFirst).toHaveBeenCalledWith({
+        where: { restaurantId: restaurant.id, name: 'Raita', NOT: { id: 7 } },
+        select: { id: true },
+      });
+      expect(prisma.menuItem.update).toHaveBeenCalled();
     });
   });
 

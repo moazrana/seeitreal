@@ -26,12 +26,21 @@ describe('CreateMenuItemDto dimensions (documents/TASK-real-world-ar-sizing.md Â
     },
   );
 
-  it('rejects non-integer millimetres and values above 5m', async () => {
+  it('rejects non-integer millimetres and anything over 20 inches (508mm)', async () => {
     expect(await errorsFor({ name: 'Karahi', widthMm: 26.5 })).toEqual([
       'widthMm',
     ]);
-    expect(await errorsFor({ name: 'Karahi', widthMm: 5001 })).toEqual([
+    expect(await errorsFor({ name: 'Karahi', widthMm: 509 })).toEqual([
       'widthMm',
     ]);
+    expect(await errorsFor({ name: 'Karahi', widthMm: 508 })).toEqual([]);
+  });
+});
+
+describe('name trimming', () => {
+  it('trims surrounding whitespace and rejects whitespace-only names', async () => {
+    const dto = plainToInstance(CreateMenuItemDto, { name: '  Karahi  ' });
+    expect(dto.name).toBe('Karahi');
+    expect(await errorsFor({ name: '   ' })).toEqual(['name']);
   });
 });

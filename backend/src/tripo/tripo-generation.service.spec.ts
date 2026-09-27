@@ -29,6 +29,15 @@ jest.mock('./model-scaling.service', () => ({
 const modelScalingModule = require('./model-scaling.service');
 const { ModelScalingService } =
   modelScalingModule as typeof import('./model-scaling.service');
+// Same reasoning for the optimizer (gltf-transform + ESM-only meshoptimizer);
+// its real behaviour is verified outside Jest (see README).
+jest.mock('./model-optimization.service', () => ({
+  ModelOptimizationService: jest.fn(),
+}));
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const modelOptimizationModule = require('./model-optimization.service');
+const { ModelOptimizationService } =
+  modelOptimizationModule as typeof import('./model-optimization.service');
 
 describe('TripoGenerationService', () => {
   let service: TripoGenerationService;
@@ -49,6 +58,7 @@ describe('TripoGenerationService', () => {
   let storage: { putObject: jest.Mock; generateKey: jest.Mock };
   let usdz: { convert: jest.Mock };
   let modelScaling: { scaleToRealSize: jest.Mock };
+  let modelOptimization: { optimizeOrOriginal: jest.Mock };
   let originalFetch: typeof fetch;
 
   const owner = { userId: 1, email: 'owner@example.com', role: UserRole.OWNER };
@@ -85,6 +95,11 @@ describe('TripoGenerationService', () => {
         .fn()
         .mockImplementation((buf: Buffer) => Promise.resolve(buf)),
     };
+    modelOptimization = {
+      optimizeOrOriginal: jest
+        .fn()
+        .mockImplementation((buf: Buffer) => Promise.resolve(buf)),
+    };
 
     const moduleRef = await Test.createTestingModule({
       providers: [
@@ -95,6 +110,7 @@ describe('TripoGenerationService', () => {
         { provide: StorageService, useValue: storage },
         { provide: UsdzConversionService, useValue: usdz },
         { provide: ModelScalingService, useValue: modelScaling },
+        { provide: ModelOptimizationService, useValue: modelOptimization },
         {
           provide: ConfigService,
           useValue: {
@@ -135,7 +151,7 @@ describe('TripoGenerationService', () => {
       expect(tripoClient.submitImageToModel).not.toHaveBeenCalled();
     });
 
-    it('rejects an item with no real-world width (documents/TASK-real-world-ar-sizing.md)', async () => {
+    it('generates without dimensions — they are optional (mango points 2)', async () => {
       prisma.menuItem.findUnique.mockResolvedValueOnce({
         id: 1,
         restaurantId: restaurant.id,
@@ -143,11 +159,14 @@ describe('TripoGenerationService', () => {
         widthMm: null,
         arStatus: 'pending',
       });
+      tripoClient.submitImageToModel.mockResolvedValueOnce({
+        taskId: 'task_123',
+      });
+      prisma.menuItem.update.mockResolvedValueOnce({ id: 1 });
 
-      await expect(
-        service.triggerGeneration(restaurant.id, 1, owner),
-      ).rejects.toBeInstanceOf(BadRequestException);
-      expect(tripoClient.submitImageToModel).not.toHaveBeenCalled();
+      await service.triggerGeneration(restaurant.id, 1, owner);
+
+      expect(tripoClient.submitImageToModel).toHaveBeenCalled();
     });
 
     it('refuses to re-trigger while already generating (debounce guard)', async () => {
@@ -403,6 +422,48 @@ describe('TripoGenerationService', () => {
         }),
       );
       expect(usdz.convert).toHaveBeenCalledWith(scaledBuffer);
+    });
+
+    it('optimizes the scaled GLB and uploads/converts the optimized result', async () => {
+      prisma.menuItem.findFirst.mockResolvedValueOnce({
+        id: 1,
+        tripoTaskId: 'task_1',
+        widthMm: null,
+        lengthMm: null,
+      });
+      (global.fetch as jest.Mock).mockResolvedValue({
+        ok: true,
+        arrayBuffer: () => Promise.resolve(Buffer.from('raw')),
+      });
+      const scaled = Buffer.from('scaled');
+      const optimized = Buffer.from('optimized');
+      modelScaling.scaleToRealSize.mockResolvedValueOnce(scaled);
+      modelOptimization.optimizeOrOriginal.mockResolvedValueOnce(optimized);
+      usdz.convert.mockResolvedValueOnce(Buffer.from('usdz'));
+
+      await service.handleTaskResult({
+        taskId: 'task_1',
+        status: 'success',
+        progress: 100,
+        output: { modelUrl: 'https://tripo.example/model.glb' },
+      });
+
+      // No dimensions: still scaled (to the default footprint), never raw.
+      expect(modelScaling.scaleToRealSize).toHaveBeenCalledWith(
+        Buffer.from('raw'),
+        { widthMm: null, lengthMm: null },
+      );
+      expect(modelOptimization.optimizeOrOriginal).toHaveBeenCalledWith(
+        scaled,
+        expect.stringContaining('task_1'),
+      );
+      expect(storage.putObject).toHaveBeenCalledWith(
+        expect.objectContaining({
+          contentType: 'model/gltf-binary',
+          body: optimized,
+        }),
+      );
+      expect(usdz.convert).toHaveBeenCalledWith(optimized);
     });
 
     it('flags the item for QA (not live-but-mis-sized) when scaling fails', async () => {

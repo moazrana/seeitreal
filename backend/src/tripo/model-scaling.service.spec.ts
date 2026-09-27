@@ -212,6 +212,28 @@ describe('ModelScalingService', () => {
     expect(extent(1)).toBeCloseTo(0.151, 3);
   });
 
+  it('scales to the default 10-inch footprint when no dimensions were entered', async () => {
+    const glb = buildGlbFixture([
+      {
+        baseMin: [0, 0, 0],
+        baseMax: [2, 1, 1], // Tripo-style arbitrary scale: 2m wide
+        scale: [1, 1, 1],
+        translation: [0, 0, 0],
+      },
+    ]);
+
+    const scaled = await service.scaleToRealSize(glb, {
+      widthMm: null,
+      lengthMm: null,
+    });
+    const [node] = readFixture(Buffer.from(scaled));
+
+    expect((node.baseMax[0] - node.baseMin[0]) * node.scale[0]).toBeCloseTo(
+      0.254,
+      5,
+    );
+  });
+
   it('uses the larger of width and length as the real footprint', async () => {
     const glb = buildGlbFixture([
       {

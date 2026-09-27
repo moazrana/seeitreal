@@ -36,16 +36,27 @@ export class GlbUploadService {
     file: Express.Multer.File,
     keyPrefix: string,
   ): Promise<{ key: string; url: string }> {
+    this.assertValid(file);
+    return this.store(file.buffer, keyPrefix);
+  }
+
+  /** Checks 1-3. Must pass before anything parses the file's bytes. */
+  assertValid(file: Express.Multer.File): void {
     this.assertClientClaimsAllowed(file);
     this.assertGenuineGlb(file);
+  }
 
+  /** Checks 4-5: stores GLB bytes (the validated upload, or a
+   * server-processed derivative of it) under a random key. */
+  async store(
+    body: Buffer,
+    keyPrefix: string,
+  ): Promise<{ key: string; url: string }> {
     const key = this.storage.generateKey(keyPrefix, 'glb');
-    this.logger.debug(
-      `Storing manual GLB upload as ${key} (${file.size} bytes)`,
-    );
+    this.logger.debug(`Storing GLB as ${key} (${body.length} bytes)`);
     return this.storage.putObject({
       key,
-      body: file.buffer,
+      body,
       contentType: 'model/gltf-binary',
     });
   }

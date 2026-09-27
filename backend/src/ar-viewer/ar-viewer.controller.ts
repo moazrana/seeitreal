@@ -1,8 +1,16 @@
 import { createReadStream } from 'node:fs';
-import { Controller, Get, NotFoundException, Param, Res } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  NotFoundException,
+  Param,
+  Req,
+  Res,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { SkipThrottle, Throttle } from '@nestjs/throttler';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
+import { AnalyticsService } from '../analytics/analytics.service';
 import {
   renderItemPage,
   renderNotFoundPage,
@@ -25,6 +33,7 @@ export class ArViewerController {
   constructor(
     private readonly arViewer: ArViewerService,
     private readonly config: ConfigService,
+    private readonly analytics: AnalyticsService,
   ) {}
 
   // Public scan/AR endpoint — stricter throttling per spec §7.4.
@@ -32,6 +41,7 @@ export class ArViewerController {
   @Get('m/:slug')
   async viewItem(
     @Param('slug') slug: string,
+    @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ) {
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
@@ -64,6 +74,11 @@ export class ArViewerController {
 
     try {
       const item = await this.arViewer.findItemByPublicSlug(slug);
+      // Only a page actually served counts as a scan — not-found, hidden
+      // and subscription-gated responses never reach here. req.ip is the
+      // real client only when TRUST_PROXY is set behind nginx; it's hashed
+      // before storage and never persisted raw.
+      await this.analytics.recordScan(item.restaurantId, item.id, req.ip);
       return renderItemPage(
         item,
         item.restaurant.name,

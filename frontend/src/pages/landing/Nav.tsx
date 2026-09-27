@@ -38,10 +38,14 @@ export function Nav() {
               {link.label}
             </a>
           ))}
+          <div className={styles.navThemeMobile}>
+            <span>Theme</span>
+            <ThemeToggle />
+          </div>
         </nav>
 
         <div className={styles.navCta}>
-          <ThemeToggle />
+          <ThemeToggle className={styles.navThemeDesktop} />
           <Link to="/signup" className={`${styles.btn} ${styles.btnPrimary}`}>
             Start free
           </Link>
