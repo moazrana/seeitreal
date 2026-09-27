@@ -140,7 +140,7 @@ describe('renderItemPage', () => {
       'Demo Diner',
     );
 
-    expect(html).toContain('26.0 × 15.0 × 8.0 cm');
+    expect(html).toContain('10.2 × 5.9 × 3.1 in (26 × 15 × 8 cm)');
   });
 
   it('omits the size caption when no dimensions are set', () => {

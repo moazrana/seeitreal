@@ -1,11 +1,13 @@
 import { NodeIO } from '@gltf-transform/core';
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
 import { getBounds } from '@gltf-transform/functions';
+import { DEFAULT_FOOTPRINT_MM } from '@ar-menu/shared';
 import { Injectable } from '@nestjs/common';
 
-/** The owner-entered footprint the model is scaled to, in millimetres. */
+/** The owner-entered footprint the model is scaled to, in millimetres.
+ * Both optional — without either, DEFAULT_FOOTPRINT_MM is used. */
 export interface RealFootprintMm {
-  widthMm: number;
+  widthMm?: number | null;
   lengthMm?: number | null;
 }
 
@@ -82,10 +84,9 @@ export class ModelScalingService {
       );
     }
 
-    const realFootprintMm = Math.max(
-      footprint.widthMm,
-      footprint.lengthMm ?? 0,
-    );
+    const realFootprintMm =
+      Math.max(footprint.widthMm ?? 0, footprint.lengthMm ?? 0) ||
+      DEFAULT_FOOTPRINT_MM;
     if (!Number.isFinite(realFootprintMm) || realFootprintMm <= 0) {
       throw new Error(
         `Cannot scale: invalid real-world footprint (${realFootprintMm}mm)`,

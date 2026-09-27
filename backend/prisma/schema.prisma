@@ -270,6 +270,9 @@ model MenuCategory {
   restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
   items      MenuItem[]
 
+  // One cuisine type per name per restaurant. The column's
+  // utf8mb4_unicode_ci collation makes this case-insensitive.
+  @@unique([restaurantId, name])
   @@index([restaurantId])
   @@map("menu_categories")
 }

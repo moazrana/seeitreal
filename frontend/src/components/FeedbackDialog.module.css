@@ -1,0 +1,125 @@
+.dialog {
+  --tone: var(--accent-strong);
+  --tone-bg: var(--tint-teal-bg);
+  width: min(360px, calc(100vw - 32px));
+  padding: 1.75rem 1.5rem 1.4rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow-elev);
+  text-align: center;
+}
+
+.dialog[data-tone='warning'] {
+  --tone: var(--warning);
+  --tone-bg: var(--warning-bg);
+}
+
+.dialog::backdrop {
+  background: var(--overlay);
+}
+
+.badge {
+  display: grid;
+  place-items: center;
+  width: 72px;
+  height: 72px;
+  margin: 0 auto 1rem;
+  border-radius: 50%;
+  background: var(--tone-bg);
+}
+
+.icon {
+  width: 52px;
+  height: 52px;
+  fill: none;
+  stroke: var(--tone);
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.title {
+  margin: 0 0 0.4rem;
+  font-size: 1.15rem;
+}
+
+.message {
+  margin: 0 0 1.25rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.ok {
+  min-width: 120px;
+}
+
+/* Motion: ring + mark draw in, badge pops (success) or shakes (warning).
+ * Only transform/opacity/stroke-dashoffset animate — cheap, compositor-
+ * friendly — and nothing runs for users who ask for reduced motion. */
+@media (prefers-reduced-motion: no-preference) {
+  .dialog[open] {
+    animation: dialog-in 0.28s cubic-bezier(0.2, 0.9, 0.3, 1.2);
+  }
+
+  .ring {
+    stroke-dasharray: 151;
+    stroke-dashoffset: 151;
+    animation: draw 0.5s ease-out 0.1s forwards;
+  }
+
+  .mark {
+    stroke-dasharray: 40;
+    stroke-dashoffset: 40;
+    animation: draw 0.35s ease-out 0.5s forwards;
+  }
+
+  .dialog[data-tone='success'] .badge {
+    animation: pop 0.45s cubic-bezier(0.2, 0.9, 0.3, 1.4) 0.45s both;
+  }
+
+  .dialog[data-tone='warning'] .badge {
+    animation: shake 0.45s ease-in-out 0.55s both;
+  }
+}
+
+@keyframes dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.96);
+  }
+}
+
+@keyframes draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes pop {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.12);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  20%,
+  60% {
+    transform: translateX(-5px);
+  }
+  40%,
+  80% {
+    transform: translateX(5px);
+  }
+}

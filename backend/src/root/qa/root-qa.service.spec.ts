@@ -54,7 +54,7 @@ describe('RootQaService', () => {
       expect(prisma.menuItem.update).not.toHaveBeenCalled();
     });
 
-    it('refuses to approve an item missing its real-world width', async () => {
+    it('approves an item without dimensions (they are optional)', async () => {
       prisma.menuItem.findUnique.mockResolvedValueOnce({
         id: 1,
         arStatus: 'qa',
@@ -62,10 +62,11 @@ describe('RootQaService', () => {
         modelUsdzUrl: 'https://x/model.usdz',
         widthMm: null,
       });
+      prisma.menuItem.update.mockResolvedValueOnce({ id: 1, arStatus: 'live' });
 
-      await expect(service.approve(1, admin, undefined)).rejects.toBeInstanceOf(
-        BadRequestException,
-      );
+      await service.approve(1, admin, undefined);
+
+      expect(prisma.menuItem.update).toHaveBeenCalled();
     });
 
     it('refuses to approve an item not in qa status', async () => {

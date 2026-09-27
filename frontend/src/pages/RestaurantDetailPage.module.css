@@ -47,6 +47,10 @@
   text-decoration: none;
 }
 
+.dashboardLink {
+  margin-right: auto;
+}
+
 .backLink:hover {
   color: var(--text);
 }
@@ -348,6 +352,13 @@
   margin: 0;
   color: var(--text-muted);
   font-size: 0.85rem;
+}
+
+.dishScans {
+  margin: -0.35rem 0 0.6rem;
+  color: var(--accent-strong);
+  font-size: 0.8rem;
+  font-weight: 600;
 }
 
 .dishDimForm {

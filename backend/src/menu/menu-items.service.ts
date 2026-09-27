@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -43,6 +44,7 @@ export class MenuItemsService {
     dto: CreateMenuItemDto,
   ) {
     await this.restaurants.assertOwnership(restaurantId, user);
+    await this.assertNameAvailable(restaurantId, dto.name);
     if (dto.categoryId !== undefined) {
       await this.assertCategoryBelongs(restaurantId, dto.categoryId);
     }
@@ -176,6 +178,9 @@ export class MenuItemsService {
     dto: UpdateMenuItemDto,
   ) {
     await this.findOwnedOrThrow(restaurantId, id, user);
+    if (dto.name !== undefined) {
+      await this.assertNameAvailable(restaurantId, dto.name, id);
+    }
     if (dto.categoryId !== undefined) {
       await this.assertCategoryBelongs(restaurantId, dto.categoryId);
     }
@@ -221,6 +226,32 @@ export class MenuItemsService {
       throw new NotFoundException('Item not found');
     }
     return item;
+  }
+
+  /**
+   * One dish per name per restaurant (case-insensitive via the column's
+   * collation). Deliberately an application check, not a DB unique index:
+   * existing data may already hold duplicate dish names, and each has its
+   * own printed QR code, so they can't be merged or renamed automatically.
+   */
+  private async assertNameAvailable(
+    restaurantId: number,
+    name: string,
+    exceptId?: number,
+  ) {
+    const existing = await this.prisma.menuItem.findFirst({
+      where: {
+        restaurantId,
+        name,
+        ...(exceptId !== undefined ? { NOT: { id: exceptId } } : {}),
+      },
+      select: { id: true },
+    });
+    if (existing) {
+      throw new ConflictException(
+        `A dish named "${name}" is already on this restaurant's menu`,
+      );
+    }
   }
 
   private async assertCategoryBelongs(

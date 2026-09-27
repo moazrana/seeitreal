@@ -113,3 +113,25 @@ export interface ApiErrorBody {
   message: string | string[];
   error?: string;
 }
+
+// ---- Analytics (mango points 2): scans = opens of a dish's public AR page.
+
+export interface ItemScanCount {
+  itemId: number;
+  scans: number;
+}
+
+export interface RestaurantOverview {
+  id: number;
+  name: string;
+  slug: string;
+  dishes: number;
+  statusCounts: Record<ArStatus, number>;
+  scans: number;
+  topDishes: { name: string; publicSlug: string; scans: number }[];
+}
+
+export interface DashboardOverview {
+  totals: { restaurants: number; dishes: number; live: number; inReview: number; scans: number };
+  restaurants: RestaurantOverview[];
+}

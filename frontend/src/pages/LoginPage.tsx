@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import type { FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { restaurantsApi } from '../api/restaurants';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { errorMessage } from '../lib/errors';
 import { useAuth } from '../context/useAuth';
@@ -22,11 +21,8 @@ export function LoginPage() {
     setSubmitting(true);
     try {
       await login(email, password);
-      // One restaurant per account — go straight to it rather than
-      // through the list page. Falls back to the list for an admin (sees
-      // every restaurant) or a pre-existing owner with none/several yet.
-      const restaurants = await restaurantsApi.list();
-      navigate(restaurants.length === 1 ? `/restaurants/${restaurants[0].slug}` : '/restaurants');
+      // Land on the multi-restaurant dashboard.
+      navigate('/restaurants');
     } catch (err) {
       setError(errorMessage(err));
     } finally {

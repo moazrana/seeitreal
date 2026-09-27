@@ -54,13 +54,8 @@ export class RootQaService {
         'Cannot approve: item is missing a GLB and/or USDZ model file',
       );
     }
-    // Real-world dimensions are required before an item can go live
-    // (documents/TASK-real-world-ar-sizing.md §2).
-    if (!item.widthMm) {
-      throw new BadRequestException(
-        'Cannot approve: item is missing its real-world width',
-      );
-    }
+    // Real-world dimensions are optional (models without them are scaled
+    // to DEFAULT_FOOTPRINT_MM in the pipeline), so they don't gate approval.
 
     const updated = await this.prisma.menuItem.update({
       where: { id: itemId },

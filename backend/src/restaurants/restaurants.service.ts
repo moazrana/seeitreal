@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { UserRole } from '@ar-menu/shared';
+import { MAX_RESTAURANTS_PER_OWNER, UserRole } from '@ar-menu/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { ImageUploadService } from '../uploads/image-upload.service';
 import type { AuthenticatedUser } from '../auth/types/authenticated-user.interface';
@@ -20,15 +20,16 @@ export class RestaurantsService {
 
   async create(user: AuthenticatedUser, dto: CreateRestaurantDto) {
     await this.assertSlugAvailable(dto.slug);
-    // One restaurant per account — signup already creates the owner's one
-    // restaurant, so this only ever fires for a pre-existing account that
-    // predates that (or a repeat/racing request).
-    const existing = await this.prisma.restaurant.findFirst({
-      where: { ownerUserId: user.userId },
-      select: { id: true },
-    });
-    if (existing) {
-      throw new ConflictException('Your account already has a restaurant');
+    // Owners can run several restaurants; the cap is an abuse guard.
+    if (user.role !== UserRole.ADMIN) {
+      const owned = await this.prisma.restaurant.count({
+        where: { ownerUserId: user.userId },
+      });
+      if (owned >= MAX_RESTAURANTS_PER_OWNER) {
+        throw new ConflictException(
+          `An account can have at most ${MAX_RESTAURANTS_PER_OWNER} restaurants`,
+        );
+      }
     }
     return this.prisma.restaurant.create({
       data: {

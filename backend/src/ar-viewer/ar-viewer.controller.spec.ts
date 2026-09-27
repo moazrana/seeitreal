@@ -1,6 +1,7 @@
 import { NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
+import { AnalyticsService } from '../analytics/analytics.service';
 import { ArViewerController } from './ar-viewer.controller';
 import { ArViewerService } from './ar-viewer.service';
 
@@ -19,15 +20,19 @@ describe('ArViewerController', () => {
   let controller: ArViewerController;
   let arViewer: { findItemByPublicSlug: jest.Mock };
   let config: { get: jest.Mock };
+  let analytics: { recordScan: jest.Mock };
+  const req = { ip: '203.0.113.7' };
 
   async function build(configValues: Record<string, string | undefined>) {
     arViewer = { findItemByPublicSlug: jest.fn() };
     config = { get: jest.fn((key: string) => configValues[key]) };
+    analytics = { recordScan: jest.fn().mockResolvedValue(undefined) };
     const moduleRef = await Test.createTestingModule({
       controllers: [ArViewerController],
       providers: [
         { provide: ArViewerService, useValue: arViewer },
         { provide: ConfigService, useValue: config },
+        { provide: AnalyticsService, useValue: analytics },
       ],
     }).compile();
     controller = moduleRef.get(ArViewerController);
@@ -43,7 +48,7 @@ describe('ArViewerController', () => {
     });
     const res = makeRes();
 
-    await controller.viewItem('slug', res as never);
+    await controller.viewItem('slug', req as never, res as never);
 
     const csp = res.headers['Content-Security-Policy'];
     expect(csp).toContain("img-src 'self' data: blob:;");
@@ -65,7 +70,7 @@ describe('ArViewerController', () => {
     });
     const res = makeRes();
 
-    await controller.viewItem('slug', res as never);
+    await controller.viewItem('slug', req as never, res as never);
 
     const csp = res.headers['Content-Security-Policy'];
     expect(csp).toContain('img-src');
@@ -85,7 +90,7 @@ describe('ArViewerController', () => {
     });
     const res = makeRes();
 
-    await controller.viewItem('slug', res as never);
+    await controller.viewItem('slug', req as never, res as never);
 
     const csp = res.headers['Content-Security-Policy'];
     expect(csp).not.toContain('neutral');
@@ -105,7 +110,7 @@ describe('ArViewerController', () => {
     });
     const res = makeRes();
 
-    const html = await controller.viewItem('slug', res as never);
+    const html = await controller.viewItem('slug', req as never, res as never);
 
     expect(html).toContain(
       'data-environment-image-dark="https://hdr.example.net/kitchen.hdr"',
@@ -126,6 +131,22 @@ describe('ArViewerController', () => {
     );
   });
 
+  it('records a scan (with the request IP, hashed downstream) when a dish page is served', async () => {
+    await build({});
+    arViewer.findItemByPublicSlug.mockResolvedValueOnce({
+      id: 42,
+      restaurantId: 7,
+      name: 'Burger',
+      arStatus: 'pending',
+      photoUrl: null,
+      restaurant: { name: 'Demo Diner' },
+    });
+
+    await controller.viewItem('slug', req as never, makeRes() as never);
+
+    expect(analytics.recordScan).toHaveBeenCalledWith(7, 42, '203.0.113.7');
+  });
+
   it('renders the 404 page (not an error) for a missing/suspended/hidden item', async () => {
     await build({});
     arViewer.findItemByPublicSlug.mockRejectedValueOnce(
@@ -133,9 +154,15 @@ describe('ArViewerController', () => {
     );
     const res = makeRes();
 
-    const html = await controller.viewItem('missing', res as never);
+    const html = await controller.viewItem(
+      'missing',
+      req as never,
+      res as never,
+    );
 
     expect(res.status).toHaveBeenCalledWith(404);
     expect(html).toContain('Dish not found');
+    // A page that wasn't served is never counted as a scan.
+    expect(analytics.recordScan).not.toHaveBeenCalled();
   });
 });

@@ -32,7 +32,11 @@ Fill in `backend/.env`. At minimum for local dev:
 
 - `DATABASE_URL` — matches `docker-compose.yml`'s default MySQL credentials, or your own instance.
 - `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET` — generate with `openssl rand -base64 64`.
-- `IP_HASH_SALT` — generate with `openssl rand -hex 32`.
+- `IP_HASH_SALT` — generate with `openssl rand -hex 32`. Keys the HMAC used to hash diner IPs for
+  scan de-duplication (raw IPs are never stored).
+- `TRUST_PROXY` — set `true` when the API runs behind a reverse proxy (nginx). Without it every
+  request appears to come from the proxy's IP, which collapses QR-scan counting (all diners look
+  like one visitor) and makes per-IP rate limits shared by everyone.
 - `CORS_ALLOWED_ORIGINS` — e.g. `http://localhost:4173,http://localhost:4174` for both Vite dev
   servers (`frontend/` and `rootApp/`).
 - `API_BASE_URL` — must match whatever port the API actually runs on (used to build upload/QR/AR
@@ -173,19 +177,27 @@ allow-list, and a global exception filter that never leaks internals to clients.
   it without both files, so this can't silently ship broken AR.
 - Model QA (approve/reject) **moved to the Root App** — see below. The old `backend/src/admin/`
   module, its `/api/admin/*` routes, and the customer dashboard's QA queue page are gone.
-- Real-world AR sizing (`documents/TASK-real-world-ar-sizing.md`): `MenuItem` carries
-  `width_mm`/`height_mm`/`length_mm`, entered by the owner in **centimetres** (dashboard), stored
-  as whole millimetres and validated server-side (`10–5000`, bounds in `shared/src/menu.ts`; the
-  10 mm floor exists because a `5` typed into the old millimetre field produced a 0.5 cm AR dish).
-  Tripo returns models at an arbitrary normalized scale, so before GLB→USDZ conversion,
-  `ModelScalingService` uniform-scales the downloaded GLB so its **footprint** — the larger of its
-  X/Z bounding-box extents — matches the larger of the item's `width_mm`/`length_mm`. Tripo doesn't
-  orient dishes consistently, so matching X to width alone made models whose long side landed on
-  Z far too large. It never stretches axes independently (that would distort the AI's
-  proportions) and grounds the model so its base sits at `y = 0`. `widthMm` is
-  required before `generate-model` will run and again before `AdminService.approve` will publish
-  an item — an item can never go `live` unscaled. The diner AR viewer shows a "true size" caption
-  when dimensions are set.
+- Real-world AR sizing (`documents/TASK-real-world-ar-sizing.md`): `MenuItem` carries optional
+  `width_mm`/`height_mm`/`length_mm`, entered by the owner in **inches** (dashboard, up to 20"),
+  stored as whole millimetres and validated server-side (`10–508`, bounds in
+  `shared/src/menu.ts`). Tripo returns models at an arbitrary normalized scale, so before
+  GLB→USDZ conversion `ModelScalingService` uniform-scales the downloaded GLB so its
+  **footprint** (the larger of its X/Z bounding-box extents) matches the larger of the item's
+  width/length. Tripo doesn't orient dishes consistently, so matching X to width alone made
+  models whose long side landed on Z far too large. With no dimensions entered, the footprint
+  defaults to 10" (`DEFAULT_FOOTPRINT_MM`, a typical plate), never Tripo's arbitrary scale.
+  Scaling is uniform (no per-axis stretching) and grounds the model at `y = 0`. The diner viewer
+  shows a "true size" caption (inches, plus cm) when dimensions are set.
+- Model optimization (`ModelOptimizationService`), after scaling and before USDZ conversion, and
+  for manual GLB uploads (after validation): dedup, weld, then meshoptimizer simplification to
+  ~150k triangles, then textures capped at 2048 px in their original format (no extensions, so
+  Scene Viewer, Quick Look and `<model-viewer>` need no extra decoders). On real Tripo output this
+  took 1.42M → 150k triangles and 41 MB → 4.9 MB with dimensions unchanged. It's a performance
+  step, not a gate: on failure the original model is kept and the error logged.
+- USDZ converter texture binding (`tools/usdz/gltf_to_usdz.py`): material texture references
+  are resolved through `textures[i].source`. They were previously used as image indices, which
+  bound Tripo models' normal map into the metallic slot and rendered every dish as chrome in iOS
+  AR Quick Look. Models converted before this fix need regenerating (or re-converting).
 
 **3D model realism enhancement** (`documents/3d-model-enhancement.md`) — extends spec §11:
 
@@ -263,11 +275,25 @@ events) is intentionally not wired in yet — that's spec §9 build-order step 5
   and support/feedback inboxes (the owner-side submission endpoints don't exist yet either).
 
 **Also built ahead of the strict build order:** a working React dashboard (`frontend/`) —
-login/signup, restaurant creation, **cuisine types** (the owner-facing name for menu categories;
-the API/DB keep `category`) with cuisine tabs that filter the dish grid, menu item CRUD,
+login/signup, a **multi-restaurant dashboard** (an owner can run up to
+`MAX_RESTAURANTS_PER_OWNER` restaurants; `GET /api/dashboard/overview` aggregates each
+restaurant's dish counts by AR status, QR scans and most-scanned dishes, scoped server-side to
+the caller), **cuisine types** (the owner-facing name for menu categories; the API/DB keep
+`category`) with cuisine tabs that filter the dish grid, menu item CRUD,
 multi-photo upload (up to 5, with a capture guide and per-photo removal), a manual-GLB upload for
 hero dishes, and the generate-3D-model trigger. Also:
 
+- **Duplicates rejected:** a cuisine type name is unique per restaurant (DB unique index,
+  case-insensitive via the column collation; the migration merged pre-existing duplicates and
+  re-pointed their dishes), and so is a dish name (application check with a 409 — existing
+  duplicate dishes each have their own printed QR, so they aren't merged). Names are trimmed.
+  The dashboard shows an animated warning dialog on a duplicate and a success dialog when a dish
+  is added (CSS-only animation, disabled under `prefers-reduced-motion`).
+- **QR scan analytics:** every served dish page (what a QR code opens) records an
+  `AnalyticsEvent`. The IP is stored only as an HMAC-SHA256 keyed with `IP_HASH_SALT`, and repeat
+  opens by the same visitor within 30 minutes count once. Not-found, hidden and
+  subscription-gated pages are never counted. Scan counts show per dish and on the dashboard.
+  Requires `TRUST_PROXY=true` behind nginx (see env vars).
 - **Live updates, no reload:** `useLiveRefresh` re-polls the page's existing authenticated
   endpoints while the tab is visible (every 5 s while a dish is generating or in QA, 20 s
   otherwise; billing every 15 s), refreshes on focus, stops while hidden, and backs off for 60 s
@@ -319,30 +345,32 @@ never by numeric id. The slug is resolved server-side (`RestaurantIdFromSlug`/`I
 and ownership is still enforced in the service layer. Categories and photos keep numeric ids;
 they only appear in API requests, never in a browser URL.
 
-| Method           | Path                                                 | Auth           | Notes                                                                                              |
-| ---------------- | ---------------------------------------------------- | -------------- | -------------------------------------------------------------------------------------------------- |
-| POST             | `/auth/signup`                                       | —              | creates an owner account                                                                           |
-| POST             | `/auth/login`                                        | —              |                                                                                                    |
-| POST             | `/auth/refresh`                                      | refresh cookie | rotates the refresh token                                                                          |
-| POST             | `/auth/logout`                                       | refresh cookie |                                                                                                    |
-| POST             | `/auth/verify-email`                                 | —              |                                                                                                    |
-| POST             | `/auth/request-password-reset`                       | —              | always returns a generic response                                                                  |
-| POST             | `/auth/reset-password`                               | —              | revokes all existing sessions                                                                      |
-| POST/GET         | `/restaurants`                                       | JWT            | scoped to the caller; admin sees all                                                               |
-| GET/PATCH/DELETE | `/restaurants/:slug`                                 | JWT            | 404 on cross-tenant access; 403 if the restaurant is suspended                                     |
-| POST             | `/restaurants/:slug/logo`                            | JWT            | multipart image upload                                                                             |
-| POST/GET         | `/restaurants/:slug/categories`                      | JWT            |                                                                                                    |
-| PATCH/DELETE     | `/restaurants/:slug/categories/:catId`               | JWT            |                                                                                                    |
-| POST/GET         | `/restaurants/:slug/items`                           | JWT            |                                                                                                    |
-| GET/PATCH/DELETE | `/restaurants/:slug/items/:itemSlug`                 | JWT            |                                                                                                    |
-| POST             | `/restaurants/:slug/items/:itemSlug/photos`          | JWT            | multipart, 1–5 files (field `files`); resets AR status; 400 past 5 total                           |
-| DELETE           | `/restaurants/:slug/items/:itemSlug/photos/:photoId` | JWT            | 404 if the photo isn't this item's; leaves the 3D model/AR status untouched                        |
-| POST             | `/restaurants/:slug/items/:itemSlug/generate-model`  | JWT            | triggers Tripo (single-image or multiview by photo count); only from `pending`, requires `widthMm` |
-| POST             | `/restaurants/:slug/items/:itemSlug/model`           | JWT            | hero-dish bypass: multipart `.glb` upload, skips Tripo; only from `pending`, requires `widthMm`    |
-| GET              | `/uploads/:prefix/:filename`                         | —              | read-only static serving (local storage driver)                                                    |
-| POST             | `/webhooks/tripo?token=...`                          | shared secret  | Tripo task-complete callback                                                                       |
-| GET              | `/m/:slug`                                           | —              | public diner AR viewer page (HTML); 404 if suspended/hidden                                        |
-| GET              | `/vendor/model-viewer.min.js`                        | —              | self-hosted `<model-viewer>` bundle                                                                |
+| Method           | Path                                                 | Auth           | Notes                                                                                                  |
+| ---------------- | ---------------------------------------------------- | -------------- | ------------------------------------------------------------------------------------------------------ |
+| POST             | `/auth/signup`                                       | —              | creates an owner account                                                                               |
+| POST             | `/auth/login`                                        | —              |                                                                                                        |
+| POST             | `/auth/refresh`                                      | refresh cookie | rotates the refresh token                                                                              |
+| POST             | `/auth/logout`                                       | refresh cookie |                                                                                                        |
+| POST             | `/auth/verify-email`                                 | —              |                                                                                                        |
+| POST             | `/auth/request-password-reset`                       | —              | always returns a generic response                                                                      |
+| POST             | `/auth/reset-password`                               | —              | revokes all existing sessions                                                                          |
+| POST/GET         | `/restaurants`                                       | JWT            | scoped to the caller; admin sees all; owners capped at `MAX_RESTAURANTS_PER_OWNER` (409)               |
+| GET              | `/dashboard/overview`                                | JWT            | the caller's restaurants with dish/AR-status counts, QR scans, top dishes                              |
+| GET              | `/restaurants/:slug/analytics/items`                 | JWT            | QR scan count per dish; 404 on cross-tenant access                                                     |
+| GET/PATCH/DELETE | `/restaurants/:slug`                                 | JWT            | 404 on cross-tenant access; 403 if the restaurant is suspended                                         |
+| POST             | `/restaurants/:slug/logo`                            | JWT            | multipart image upload                                                                                 |
+| POST/GET         | `/restaurants/:slug/categories`                      | JWT            |                                                                                                        |
+| PATCH/DELETE     | `/restaurants/:slug/categories/:catId`               | JWT            |                                                                                                        |
+| POST/GET         | `/restaurants/:slug/items`                           | JWT            |                                                                                                        |
+| GET/PATCH/DELETE | `/restaurants/:slug/items/:itemSlug`                 | JWT            |                                                                                                        |
+| POST             | `/restaurants/:slug/items/:itemSlug/photos`          | JWT            | multipart, 1–5 files (field `files`); resets AR status; 400 past 5 total                               |
+| DELETE           | `/restaurants/:slug/items/:itemSlug/photos/:photoId` | JWT            | 404 if the photo isn't this item's; leaves the 3D model/AR status untouched                            |
+| POST             | `/restaurants/:slug/items/:itemSlug/generate-model`  | JWT            | triggers Tripo (single-image or multiview by photo count); only from `pending`; dimensions optional    |
+| POST             | `/restaurants/:slug/items/:itemSlug/model`           | JWT            | hero-dish bypass: multipart `.glb` upload, skips Tripo; validated, then optimized; only from `pending` |
+| GET              | `/uploads/:prefix/:filename`                         | —              | read-only static serving (local storage driver)                                                        |
+| POST             | `/webhooks/tripo?token=...`                          | shared secret  | Tripo task-complete callback                                                                           |
+| GET              | `/m/:slug`                                           | —              | public diner AR viewer page (HTML); 404 if suspended/hidden                                            |
+| GET              | `/vendor/model-viewer.min.js`                        | —              | self-hosted `<model-viewer>` bundle                                                                    |
 
 **Root App** — every route below is also IP-allowlist-gated (`ROOT_APP_IP_ALLOWLIST`) on top of
 its listed auth, and fully separate from the customer JWT above (`root-jwt` Passport strategy,
@@ -363,7 +391,7 @@ its listed auth, and fully separate from the customer JWT above (`root-jwt` Pass
 | POST   | `/root/restaurants/:slug/items/:itemId/hide`   | root JWT + `superadmin` |                                                            |
 | POST   | `/root/restaurants/:slug/items/:itemId/unhide` | root JWT + `superadmin` |                                                            |
 | GET    | `/root/qa-queue`                               | root JWT                | any role                                                   |
-| POST   | `/root/items/:id/approve`                      | root JWT                | requires both GLB and USDZ present, and `widthMm` set      |
+| POST   | `/root/items/:id/approve`                      | root JWT                | requires both GLB and USDZ present (dimensions optional)   |
 | POST   | `/root/items/:id/reject`                       | root JWT                | body: `{ note }`                                           |
 
 Full OpenAPI/Swagger docs are not wired up yet — tracked as follow-up work.

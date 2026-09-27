@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import { UserRole } from '@ar-menu/shared';
+import { MAX_RESTAURANTS_PER_OWNER, UserRole } from '@ar-menu/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { ImageUploadService } from '../uploads/image-upload.service';
 import { RestaurantsService } from './restaurants.service';
@@ -17,6 +17,7 @@ describe('RestaurantsService', () => {
       findUnique: jest.Mock;
       findFirst: jest.Mock;
       findMany: jest.Mock;
+      count: jest.Mock;
       create: jest.Mock;
       update: jest.Mock;
       delete: jest.Mock;
@@ -43,6 +44,7 @@ describe('RestaurantsService', () => {
         findUnique: jest.fn(),
         findFirst: jest.fn(),
         findMany: jest.fn(),
+        count: jest.fn().mockResolvedValue(0),
         create: jest.fn(),
         update: jest.fn(),
         delete: jest.fn(),
@@ -62,9 +64,8 @@ describe('RestaurantsService', () => {
     service = moduleRef.get(RestaurantsService);
   });
 
-  it('creates a restaurant for the caller when the slug is free and they own none yet', async () => {
+  it('creates a restaurant for the caller when the slug is free', async () => {
     prisma.restaurant.findUnique.mockResolvedValueOnce(null);
-    prisma.restaurant.findFirst.mockResolvedValueOnce(null);
     prisma.restaurant.create.mockResolvedValueOnce(restaurant);
 
     const result = await service.create(owner, {
@@ -94,9 +95,10 @@ describe('RestaurantsService', () => {
     expect(prisma.restaurant.create).not.toHaveBeenCalled();
   });
 
-  it('rejects creation when the caller already owns a restaurant (one per account)', async () => {
+  it('lets an owner create additional restaurants (multi-restaurant accounts)', async () => {
     prisma.restaurant.findUnique.mockResolvedValueOnce(null);
-    prisma.restaurant.findFirst.mockResolvedValueOnce(restaurant);
+    prisma.restaurant.count.mockResolvedValueOnce(3);
+    prisma.restaurant.create.mockResolvedValueOnce({ ...restaurant, id: 11 });
 
     await expect(
       service.create(owner, {
@@ -104,7 +106,21 @@ describe('RestaurantsService', () => {
         slug: 'second-place',
         address: '456 Side St',
       }),
+    ).resolves.toMatchObject({ id: 11 });
+  });
+
+  it('rejects creation once an owner reaches the per-account cap (abuse guard)', async () => {
+    prisma.restaurant.findUnique.mockResolvedValueOnce(null);
+    prisma.restaurant.count.mockResolvedValueOnce(MAX_RESTAURANTS_PER_OWNER);
+
+    await expect(
+      service.create(owner, {
+        name: 'One Too Many',
+        slug: 'one-too-many',
+        address: '456 Side St',
+      }),
     ).rejects.toBeInstanceOf(ConflictException);
+    expect(prisma.restaurant.create).not.toHaveBeenCalled();
   });
 
   it('lets the owner access their own restaurant', async () => {
