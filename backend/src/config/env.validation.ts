@@ -1,6 +1,7 @@
 import { plainToInstance, Transform, Type } from 'class-transformer';
 import {
   IsBoolean,
+  IsEmail,
   IsEnum,
   IsInt,
   IsOptional,
@@ -225,6 +226,25 @@ class EnvironmentVariables {
   @IsOptional()
   @IsString()
   FRONTEND_BASE_URL?: string;
+
+  // --- Transactional email (documents/TASK-home-page-content.md §5) —
+  // optional at boot, same tier as payments: MailService reports "not
+  // configured" at call time and contact enquiries are still stored, so
+  // `npm run start` works without an email provider. The API key is
+  // server-side only and never reaches the frontend.
+  @IsOptional()
+  @IsString()
+  RESEND_API_KEY?: string;
+
+  // Verified sender, e.g. "SeeItReal <hello@seeitreal.com>".
+  @IsOptional()
+  @IsString()
+  MAIL_FROM?: string;
+
+  // Where home-page contact enquiries are delivered.
+  @IsOptional()
+  @IsEmail()
+  CONTACT_RECIPIENT_EMAIL?: string;
 
   // --- Root App (rootApp/ROOT-APP-Implementation-Spec.md §5) — a fully
   // separate secret/session set from the customer app's JWT_* above, so a

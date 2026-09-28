@@ -10,6 +10,7 @@ const LINKS = [
   // No dedicated pricing section yet — points at the CTA band where
   // signup (and, later, plan selection) happens.
   { href: '#start', label: 'Pricing' },
+  { href: '#contact', label: 'Contact' },
 ];
 
 export function Nav() {

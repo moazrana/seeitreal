@@ -698,3 +698,27 @@ model RootAuditLog {
   @@index([targetType, targetId])
   @@map("root_audit_logs")
 }
+
+/// Home-page contact / photography enquiries (documents/
+/// TASK-home-page-content.md §5). Stored so none are lost if email delivery
+/// fails or isn't configured yet; IP kept only as a keyed hash (spec §7.7).
+model ContactEnquiry {
+  id           Int                @id @default(autoincrement())
+  name         String             @db.VarChar(100)
+  email        String             @db.VarChar(254)
+  businessName String?            @map("business_name") @db.VarChar(200)
+  message      String             @db.Text
+  ipHash       String             @map("ip_hash") @db.VarChar(64)
+  emailStatus  ContactEmailStatus @map("email_status")
+  createdAt    DateTime           @default(now()) @map("created_at")
+  updatedAt    DateTime           @updatedAt @map("updated_at")
+
+  @@index([createdAt])
+  @@map("contact_enquiries")
+}
+
+enum ContactEmailStatus {
+  sent
+  not_configured
+  failed
+}

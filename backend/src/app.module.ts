@@ -5,6 +5,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { AppController } from './app.controller';
+import { ContactModule } from './contact/contact.module';
 import { ArViewerModule } from './ar-viewer/ar-viewer.module';
 import { AuthModule } from './auth/auth.module';
 import { validateEnv } from './config/env.validation';
@@ -45,6 +46,7 @@ import { UploadsModule } from './uploads/uploads.module';
     PaymentsModule,
     AnalyticsModule,
     ArViewerModule,
+    ContactModule,
     // Root App (rootApp/ROOT-APP-Implementation-Spec.md) — replaces the old
     // AdminModule; its QA queue/approve/reject moved here under a fully
     // separate root-admin identity/session (see RootModule's doc comment).
