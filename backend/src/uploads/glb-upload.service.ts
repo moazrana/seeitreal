@@ -1,5 +1,6 @@
 import { extname } from 'node:path';
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import type { StorageKeyPrefix } from '../storage/storage-keys';
 import { StorageService } from '../storage/storage.service';
 import {
   ALLOWED_GLB_EXTENSIONS,
@@ -34,7 +35,7 @@ export class GlbUploadService {
 
   async validateAndStore(
     file: Express.Multer.File,
-    keyPrefix: string,
+    keyPrefix: StorageKeyPrefix,
   ): Promise<{ key: string; url: string }> {
     this.assertValid(file);
     return this.store(file.buffer, keyPrefix);
@@ -50,7 +51,7 @@ export class GlbUploadService {
    * server-processed derivative of it) under a random key. */
   async store(
     body: Buffer,
-    keyPrefix: string,
+    keyPrefix: StorageKeyPrefix,
   ): Promise<{ key: string; url: string }> {
     const key = this.storage.generateKey(keyPrefix, 'glb');
     this.logger.debug(`Storing GLB as ${key} (${body.length} bytes)`);
