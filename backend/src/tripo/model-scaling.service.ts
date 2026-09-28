@@ -96,9 +96,16 @@ export class ModelScalingService {
     // glTF units are metres.
     const factor = realFootprintMm / 1000 / currentFootprint;
 
+    // Uniform scale about the origin, applied to every top-level node: its
+    // own scale AND its offset from the origin. Scaling only the node scale
+    // shrank each part in place but left the spacing between parts
+    // unchanged, so a multi-part model (a cake plus separately placed
+    // candles) came out far larger than the target footprint.
     for (const node of scene.listChildren()) {
       const s = node.getScale();
       node.setScale([s[0] * factor, s[1] * factor, s[2] * factor]);
+      const t = node.getTranslation();
+      node.setTranslation([t[0] * factor, t[1] * factor, t[2] * factor]);
     }
 
     // Ground the model: shift it so its lowest point sits at y = 0, so it

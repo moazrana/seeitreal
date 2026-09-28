@@ -1,12 +1,15 @@
 import { useEffect } from 'react';
 import { BeyondMenus } from './BeyondMenus';
+import { ContactSection } from './ContactSection';
 import { CtaBand } from './CtaBand';
 import { Features } from './Features';
 import { Footer } from './Footer';
 import { Hero } from './Hero';
 import { HowItWorks } from './HowItWorks';
+import { Imagine } from './Imagine';
 import styles from './landing.module.css';
 import { Nav } from './Nav';
+import { Showcase } from './Showcase';
 
 /**
  * Public marketing site (spec: seeitreal-design-spec.md). Standalone from
@@ -28,9 +31,12 @@ export function LandingPage() {
       <Nav />
       <main>
         <Hero />
+        <Showcase />
+        <Imagine />
         <HowItWorks />
         <Features />
         <BeyondMenus />
+        <ContactSection />
         <CtaBand />
       </main>
       <Footer />

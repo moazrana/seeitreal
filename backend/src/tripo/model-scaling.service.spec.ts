@@ -234,6 +234,35 @@ describe('ModelScalingService', () => {
     );
   });
 
+  it('scales multi-part models correctly — part offsets scale with the parts', async () => {
+    // Two 0.1m parts whose centres are 1m apart along X: a 1.1m footprint.
+    const glb = buildGlbFixture([
+      {
+        baseMin: [-0.05, 0, -0.05],
+        baseMax: [0.05, 0.1, 0.05],
+        scale: [1, 1, 1],
+        translation: [-0.5, 0, 0],
+      },
+      {
+        baseMin: [-0.05, 0, -0.05],
+        baseMax: [0.05, 0.1, 0.05],
+        scale: [1, 1, 1],
+        translation: [0.5, 0, 0],
+      },
+    ]);
+
+    const scaled = await service.scaleToRealSize(glb, { widthMm: 220 });
+    const nodes = readFixture(Buffer.from(scaled));
+    const minX = Math.min(
+      ...nodes.map((n) => n.baseMin[0] * n.scale[0] + n.translation[0]),
+    );
+    const maxX = Math.max(
+      ...nodes.map((n) => n.baseMax[0] * n.scale[0] + n.translation[0]),
+    );
+
+    expect(maxX - minX).toBeCloseTo(0.22, 5);
+  });
+
   it('uses the larger of width and length as the real footprint', async () => {
     const glb = buildGlbFixture([
       {

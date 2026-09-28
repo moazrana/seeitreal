@@ -1,8 +1,8 @@
-import { createHmac } from 'node:crypto';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { ArStatus } from '@prisma/client';
 import type { AuthenticatedUser } from '../auth/types/authenticated-user.interface';
+import { hashIp } from '../common/utils/ip-hash.util';
 import { PrismaService } from '../prisma/prisma.service';
 import { RestaurantsService } from '../restaurants/restaurants.service';
 
@@ -59,7 +59,7 @@ export class AnalyticsService {
     ip: string | undefined,
   ): Promise<void> {
     try {
-      const ipHash = this.hashIp(ip ?? 'unknown');
+      const ipHash = hashIp(ip, this.config.getOrThrow<string>('IP_HASH_SALT'));
       const recent = await this.prisma.analyticsEvent.findFirst({
         where: {
           targetType: 'item',
@@ -185,12 +185,6 @@ export class AnalyticsService {
       },
       restaurants: perRestaurant,
     };
-  }
-
-  private hashIp(ip: string): string {
-    return createHmac('sha256', this.config.getOrThrow<string>('IP_HASH_SALT'))
-      .update(ip)
-      .digest('hex');
   }
 }
 

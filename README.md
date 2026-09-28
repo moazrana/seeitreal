@@ -34,6 +34,10 @@ Fill in `backend/.env`. At minimum for local dev:
 - `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET` — generate with `openssl rand -base64 64`.
 - `IP_HASH_SALT` — generate with `openssl rand -hex 32`. Keys the HMAC used to hash diner IPs for
   scan de-duplication (raw IPs are never stored).
+- `RESEND_API_KEY`, `MAIL_FROM`, `CONTACT_RECIPIENT_EMAIL` — transactional email for the home-page
+  contact form (Resend; the sender domain must be verified there). Optional at boot: without them,
+  enquiries are still stored in `contact_enquiries` with `email_status = not_configured`.
+  Server-side only; the API key never reaches the frontend.
 - `TRUST_PROXY` — set `true` when the API runs behind a reverse proxy (nginx). Without it every
   request appears to come from the proxy's IP, which collapses QR-scan counting (all diners look
   like one visitor) and makes per-IP rate limits shared by everyone.
@@ -294,6 +298,14 @@ hero dishes, and the generate-3D-model trigger. Also:
   opens by the same visitor within 30 minutes count once. Not-found, hidden and
   subscription-gated pages are never counted. Scan counts show per dish and on the dashboard.
   Requires `TRUST_PROXY=true` behind nginx (see env vars).
+- **Home page content** (`documents/TASK-home-page-content.md`): a food showcase of four rotating,
+  draggable `<model-viewer>` dishes with "View in your space" (GLB + USDZ, scaled to real size).
+  They're CC0 models from Kenney's Food Kit (`frontend/public/showcase/LICENSE.txt`), 25–124 KB
+  each. `<model-viewer>` loads lazily from the API's self-hosted bundle only when the section scrolls
+  into view. Also an "Imagine / Now imagine" statement section, a photography-help offer, and a
+  contact form posting to `POST /api/contact`. That endpoint emails `CONTACT_RECIPIENT_EMAIL` via
+  Resend in plain text with the sender as reply-to, stores every enquiry with a hashed IP, and
+  never logs personal data. The nav has a Contact link.
 - **Live updates, no reload:** `useLiveRefresh` re-polls the page's existing authenticated
   endpoints while the tab is visible (every 5 s while a dish is generating or in QA, 20 s
   otherwise; billing every 15 s), refreshes on focus, stops while hidden, and backs off for 60 s
@@ -361,6 +373,7 @@ they only appear in API requests, never in a browser URL.
 | POST             | `/auth/request-password-reset`                       | —              | always returns a generic response                                                                      |
 | POST             | `/auth/reset-password`                               | —              | revokes all existing sessions                                                                          |
 | POST/GET         | `/restaurants`                                       | JWT            | scoped to the caller; admin sees all; owners capped at `MAX_RESTAURANTS_PER_OWNER` (409)               |
+| POST             | `/contact`                                           | public         | home-page enquiry; 5 per 10 min per IP; strict DTO; honeypot `website` field; stored, then emailed     |
 | GET              | `/dashboard/overview`                                | JWT            | the caller's restaurants with dish/AR-status counts, QR scans, top dishes                              |
 | GET              | `/restaurants/:slug/analytics/items`                 | JWT            | QR scan count per dish; 404 on cross-tenant access                                                     |
 | GET/PATCH/DELETE | `/restaurants/:slug`                                 | JWT            | 404 on cross-tenant access; 403 if the restaurant is suspended                                         |

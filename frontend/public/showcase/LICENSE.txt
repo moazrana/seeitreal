@@ -1,0 +1,12 @@
+Demo dish models for the marketing home page showcase.
+
+Source: Kenney "Food Kit" (2.0) — https://kenney.nl/assets/food-kit
+License: Creative Commons Zero (CC0 1.0), public domain —
+http://creativecommons.org/publicdomain/zero/1.0/
+
+Processed with the app's own pipeline: external texture embedded, scaled
+to a real-world footprint (burger 12 cm, pizza 30 cm, cake 22 cm, skewer
+25 cm) with ModelScalingService, and converted to USDZ for iOS AR with
+backend/tools/usdz/gltf_to_usdz.py.
+
+In production, restaurants' own dishes are their Tripo-generated models.
