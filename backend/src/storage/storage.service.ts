@@ -1,3 +1,4 @@
+import type { StorageKeyPrefix } from './storage-keys';
 import { randomBytes } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import type {
@@ -29,7 +30,7 @@ export class StorageService {
   }
 
   /** Server-generated random key — never derived from user input (spec §7.5). */
-  generateKey(prefix: string, extension: string): string {
+  generateKey(prefix: StorageKeyPrefix, extension: string): string {
     const random = randomBytes(24).toString('hex');
     return `${prefix}/${random}.${extension}`;
   }
