@@ -1,18 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ChangeEvent, FormEvent } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { analyticsApi } from '../api/analytics';
 import { billingApi } from '../api/billing';
 import { ApiError } from '../api/client';
 import { menuApi } from '../api/menu';
 import { restaurantsApi } from '../api/restaurants';
-import type {
-  ItemScanCount,
-  MenuCategory,
-  MenuItem,
-  Restaurant,
-  Subscription,
-} from '../api/types';
+import type { MenuCategory, MenuItem, Restaurant, Subscription } from '../api/types';
 import { AppShell } from '../components/AppShell';
 import { CuisineTabs } from '../components/CuisineTabs';
 import { ErrorBanner } from '../components/ErrorBanner';
@@ -29,7 +22,7 @@ import {
   mmToInchInput,
 } from '../lib/dimensions';
 import { compressDishPhotos } from '../lib/compressImage';
-import { cuisineTabId, matchesCuisine } from '../lib/cuisine';
+import { cuisineStyle, cuisineTabId, matchesCuisine } from '../lib/cuisine';
 import type { CuisineFilter, CuisineTab } from '../lib/cuisine';
 import { errorMessage } from '../lib/errors';
 import { itemArViewerUrl } from '../lib/publicUrls';
@@ -49,14 +42,6 @@ const FAST_REFRESH_MS = 5_000;
 const IDLE_REFRESH_MS = 20_000;
 
 const ITEMS_PANEL_ID = 'cuisine-items-panel';
-
-function toScanMap(scans: ItemScanCount[]): Map<number, number> {
-  return new Map(scans.map((s) => [s.itemId, s.scans]));
-}
-
-function formatScans(count: number): string {
-  return `${count} QR scan${count === 1 ? '' : 's'}`;
-}
 
 function isConflict(err: unknown): boolean {
   return err instanceof ApiError && err.status === 409;
@@ -79,7 +64,6 @@ export function RestaurantDetailPage() {
   const [cuisineFilter, setCuisineFilter] = useState<CuisineFilter>('all');
   const { confirm, confirmDialog } = useConfirm();
   const { showFeedback, feedbackDialog } = useFeedback();
-  const [scansByItem, setScansByItem] = useState<Map<number, number>>(new Map());
   // Monotonic id per data load, so a slow response can never overwrite
   // newer state (e.g. a background refresh landing after a delete).
   const loadSeq = useRef(0);
@@ -98,15 +82,13 @@ export function RestaurantDetailPage() {
       menuApi.listCategories(restaurantSlug),
       menuApi.listItems(restaurantSlug),
       billingApi.getSubscription(restaurantSlug),
-      analyticsApi.itemScans(restaurantSlug),
     ])
-      .then(([r, c, i, sub, scans]) => {
+      .then(([r, c, i, sub]) => {
         if (seq !== loadSeq.current) return;
         setRestaurant(r);
         setCategories(c);
         setItems(i);
         setSubscription(sub);
-        setScansByItem(toScanMap(scans));
       })
       .catch((err: unknown) => setError(errorMessage(err)));
   }
@@ -118,15 +100,13 @@ export function RestaurantDetailPage() {
   // to the next tick rather than flashing the error banner.
   const refreshLive = useCallback(async () => {
     const seq = ++loadSeq.current;
-    const [i, sub, scans] = await Promise.all([
+    const [i, sub] = await Promise.all([
       menuApi.listItems(restaurantSlug),
       billingApi.getSubscription(restaurantSlug),
-      analyticsApi.itemScans(restaurantSlug),
     ]);
     if (seq !== loadSeq.current) return;
     setItems(i);
     setSubscription(sub);
-    setScansByItem(toScanMap(scans));
   }, [restaurantSlug]);
 
   useLiveRefresh(refreshLive, {
@@ -154,14 +134,27 @@ export function RestaurantDetailPage() {
     }
   }
 
+  function warnCuisineInUse(category: MenuCategory, dishCount?: number) {
+    const dishes =
+      dishCount === undefined ? 'dishes' : `${dishCount} dish${dishCount === 1 ? '' : 'es'}`;
+    showFeedback({
+      tone: 'warning',
+      title: `"${category.name}" is still in use`,
+      message: `Every dish needs a cuisine type, and ${dishes} still use this one. Delete those dishes first.`,
+    });
+  }
+
   async function handleDeleteCategory(category: MenuCategory) {
+    // Every dish needs a cuisine type, so the API refuses (409) to delete
+    // one in use — say so up front instead of after a confirm.
     const dishCount = items.filter((item) => item.categoryId === category.id).length;
+    if (dishCount > 0) {
+      warnCuisineInUse(category, dishCount);
+      return;
+    }
     const confirmed = await confirm({
       title: `Delete "${category.name}"?`,
-      message:
-        dishCount > 0
-          ? `Its ${dishCount} dish${dishCount === 1 ? '' : 'es'} will be kept and moved to Uncategorized.`
-          : 'This cuisine type has no dishes.',
+      message: 'This cuisine type has no dishes.',
     });
     if (!confirmed) return;
     setError(null);
@@ -169,7 +162,13 @@ export function RestaurantDetailPage() {
       await menuApi.deleteCategory(restaurantSlug, category.id);
       loadAll();
     } catch (err) {
-      setError(errorMessage(err));
+      if (isConflict(err)) {
+        // A dish was added to it since the list last refreshed.
+        warnCuisineInUse(category);
+        loadAll();
+      } else {
+        setError(errorMessage(err));
+      }
     }
   }
 
@@ -179,7 +178,7 @@ export function RestaurantDetailPage() {
     try {
       await menuApi.createItem(restaurantSlug, {
         name: itemName,
-        categoryId: itemCategoryId ? Number(itemCategoryId) : undefined,
+        categoryId: Number(itemCategoryId),
         widthMm: inchInputToMm(itemWidthIn),
         heightMm: inchInputToMm(itemHeightIn),
         lengthMm: inchInputToMm(itemLengthIn),
@@ -319,7 +318,6 @@ export function RestaurantDetailPage() {
     typeof cuisineFilter === 'number' && !categories.some((c) => c.id === cuisineFilter)
       ? 'all'
       : cuisineFilter;
-  const uncategorizedCount = items.filter((item) => item.categoryId === null).length;
   const cuisineTabs: CuisineTab[] = [
     { value: 'all', label: 'All', count: items.length },
     ...categories.map((c) => ({
@@ -327,10 +325,8 @@ export function RestaurantDetailPage() {
       label: c.name,
       count: items.filter((item) => item.categoryId === c.id).length,
     })),
-    ...(categories.length > 0 && uncategorizedCount > 0
-      ? [{ value: 'none' as const, label: 'Uncategorized', count: uncategorizedCount }]
-      : []),
   ];
+  const cuisineNames = new Map(categories.map((c) => [c.id, c.name]));
   const visibleItems = items.filter((item) => matchesCuisine(item, activeCuisine));
 
   return (
@@ -410,7 +406,8 @@ export function RestaurantDetailPage() {
         </p>
         <div className={s.categoryRow}>
           {categories.map((c) => (
-            <span key={c.id} className={s.categoryChip}>
+            <span key={c.id} className={s.categoryChip} style={cuisineStyle(c.id)}>
+              <span className={s.categoryChipDot} aria-hidden="true" />
               {c.name}
               <button
                 type="button"
@@ -472,8 +469,19 @@ export function RestaurantDetailPage() {
               </li>
             )}
             {visibleItems.map((item) => (
-              <li key={item.id} className={s.dishCard} data-status={item.arStatus}>
+              <li
+                key={item.id}
+                className={s.dishCard}
+                data-status={item.arStatus}
+                style={cuisineStyle(item.categoryId)}
+              >
                 <div className={s.dishPhotoWrap}>
+                  {/* Cuisine "spine": a colour-coded index tab down the
+                      photo's edge, matching the cuisine's tab and chip. */}
+                  <span className={s.cuisineSpine}>
+                    <span className={s.visuallyHidden}>Cuisine type: </span>
+                    {cuisineNames.get(item.categoryId) ?? 'Cuisine'}
+                  </span>
                   {item.photoUrl ? (
                     <img src={item.photoUrl} alt={item.name} />
                   ) : (
@@ -488,11 +496,6 @@ export function RestaurantDetailPage() {
                   <p className={s.dishDims}>
                     {formatDimensions(item) ?? 'No dimensions — shown at 10-inch plate size'}
                   </p>
-                  {item.qrIssuedAt && (
-                    <p className={s.dishScans}>
-                      {formatScans(scansByItem.get(item.id) ?? 0)}
-                    </p>
-                  )}
                   <form
                     className={s.dishDimForm}
                     onSubmit={(e) => void handleSaveDimensions(item, e)}
@@ -613,11 +616,7 @@ export function RestaurantDetailPage() {
                       </a>
                     )}
                     {(item.qrIssuedAt || item.arStatus === 'live') && (
-                      <button
-                        type="button"
-                        className={s.actionBtn}
-                        onClick={() => setQrItem(item)}
-                      >
+                      <button type="button" className={s.actionBtn} onClick={() => setQrItem(item)}>
                         Show QR code
                       </button>
                     )}
@@ -649,8 +648,14 @@ export function RestaurantDetailPage() {
             </label>
             <label>
               Cuisine type
-              <select value={itemCategoryId} onChange={(e) => setItemCategoryId(e.target.value)}>
-                <option value="">None</option>
+              <select
+                value={itemCategoryId}
+                onChange={(e) => setItemCategoryId(e.target.value)}
+                required
+              >
+                <option value="" disabled>
+                  {categories.length === 0 ? 'Add a cuisine type first' : 'Choose…'}
+                </option>
                 {categories.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.name}
@@ -694,10 +699,16 @@ export function RestaurantDetailPage() {
             </label>
           </div>
           <p className={s.addDishNote}>
-            Optional: measure the dish as served, in inches (up to 20). With dimensions, the 3D model
-            appears at exactly that size in AR; without them it's shown at a typical 10-inch plate size.
+            Optional: measure the dish as served, in inches (up to 20). With dimensions, the 3D
+            model appears at exactly that size in AR; without them it's shown at a typical 10-inch
+            plate size.
           </p>
-          <button type="submit" className={s.addDishSubmit}>
+          {categories.length === 0 && (
+            <p className={s.addDishNote}>
+              Every dish needs a cuisine type — add one under Cuisine Types above first.
+            </p>
+          )}
+          <button type="submit" className={s.addDishSubmit} disabled={categories.length === 0}>
             Add dish
           </button>
         </form>

@@ -1,11 +1,38 @@
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { CreateMenuItemDto } from './create-menu-item.dto';
+import { UpdateMenuItemDto } from './update-menu-item.dto';
 
+// Every dish needs a cuisine type; tests below supply one unless they're
+// about it.
 async function errorsFor(input: Record<string, unknown>) {
-  const errors = await validate(plainToInstance(CreateMenuItemDto, input));
+  const errors = await validate(
+    plainToInstance(CreateMenuItemDto, { categoryId: 1, ...input }),
+  );
   return errors.map((e) => e.property);
 }
+
+async function updateErrorsFor(input: Record<string, unknown>) {
+  const errors = await validate(plainToInstance(UpdateMenuItemDto, input));
+  return errors.map((e) => e.property);
+}
+
+describe('cuisine type (categoryId) is required', () => {
+  it('rejects a dish without a cuisine type on create', async () => {
+    expect(await errorsFor({ name: 'Karahi', categoryId: undefined })).toEqual([
+      'categoryId',
+    ]);
+    expect(await errorsFor({ name: 'Karahi', categoryId: null })).toEqual([
+      'categoryId',
+    ]);
+  });
+
+  it('lets an update omit the cuisine type but never clear it', async () => {
+    expect(await updateErrorsFor({ name: 'Karahi' })).toEqual([]);
+    expect(await updateErrorsFor({ categoryId: 2 })).toEqual([]);
+    expect(await updateErrorsFor({ categoryId: null })).toEqual(['categoryId']);
+  });
+});
 
 describe('CreateMenuItemDto dimensions (documents/TASK-real-world-ar-sizing.md §2)', () => {
   it('accepts realistic dish sizes', async () => {

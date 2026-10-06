@@ -63,8 +63,7 @@
   text-align: center;
 }
 
-.tileValue,
-.scanValue {
+.tileValue {
   display: block;
   font-family: var(--font-display);
   font-size: 1.6rem;
@@ -75,8 +74,7 @@
   color: transparent;
 }
 
-.tileLabel,
-.scanLabel {
+.tileLabel {
   display: block;
   margin-top: 0.15rem;
   color: var(--text-muted);
@@ -132,18 +130,6 @@
   font-size: 0.85rem;
 }
 
-.scanBadge {
-  flex-shrink: 0;
-  padding: 0.4rem 0.8rem;
-  border-radius: var(--radius);
-  background: var(--tint-teal-bg);
-  text-align: center;
-}
-
-.scanValue {
-  font-size: 1.3rem;
-}
-
 .counts {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
@@ -166,40 +152,6 @@
   margin: 0.1rem 0 0;
   font-family: var(--font-display);
   font-size: 1.15rem;
-  font-weight: 600;
-}
-
-.topDishes ol {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.topDishes li {
-  display: flex;
-  justify-content: space-between;
-  gap: 1rem;
-  padding: 0.35rem 0;
-  border-bottom: 1px solid var(--border);
-  font-size: 0.9rem;
-}
-
-.topDishes li:last-child {
-  border-bottom: none;
-}
-
-.topDishesTitle {
-  margin: 0 0 0.35rem;
-  color: var(--text-muted);
-  font-family: var(--font-body);
-  font-size: 0.75rem;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.topDishScans {
-  color: var(--accent-strong);
   font-weight: 600;
 }
 

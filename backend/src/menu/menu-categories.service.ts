@@ -58,9 +58,35 @@ export class MenuCategoriesService {
       });
   }
 
+  /**
+   * Every dish needs a cuisine type, so one still in use can't be deleted —
+   * the owner moves or deletes its dishes first. The FK's ON DELETE
+   * RESTRICT is the real guarantee (it also catches a dish added between
+   * this check and the delete — mapInUseError).
+   */
   async remove(restaurantId: number, id: number, user: AuthenticatedUser) {
     await this.findOwnedOrThrow(restaurantId, id, user);
-    await this.prisma.menuCategory.delete({ where: { id } });
+    const dishCount = await this.prisma.menuItem.count({
+      where: { categoryId: id },
+    });
+    if (dishCount > 0) {
+      throw cuisineInUseConflict(dishCount);
+    }
+    await this.prisma.menuCategory
+      .delete({ where: { id } })
+      .catch((err: unknown) => {
+        throw this.mapInUseError(err);
+      });
+  }
+
+  private mapInUseError(err: unknown) {
+    if (
+      err instanceof Prisma.PrismaClientKnownRequestError &&
+      err.code === 'P2003'
+    ) {
+      return cuisineInUseConflict();
+    }
+    return err;
   }
 
   /**
@@ -115,5 +141,15 @@ export class MenuCategoriesService {
 function duplicateNameConflict(name: string) {
   return new ConflictException(
     `A cuisine type named "${name}" already exists for this restaurant`,
+  );
+}
+
+function cuisineInUseConflict(dishCount?: number) {
+  const dishes =
+    dishCount === undefined
+      ? 'dishes'
+      : `${dishCount} dish${dishCount === 1 ? '' : 'es'}`;
+  return new ConflictException(
+    `This cuisine type still has ${dishes}. Move them to another cuisine type or delete them first.`,
   );
 }

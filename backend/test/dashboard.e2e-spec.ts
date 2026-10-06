@@ -4,6 +4,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
 import type { App } from 'supertest/types';
 import { AppModule } from '../src/app.module';
+import { createCuisineType } from './helpers/cuisine-type';
 
 /**
  * mango points 2 over the real HTTP stack + DB: multiple restaurants per
@@ -15,6 +16,7 @@ describe('Dashboard, duplicates and scans (e2e)', () => {
   let app: INestApplication<App>;
   let token: string;
   let firstSlug: string;
+  let categoryId: number;
 
   const http = () => request(app.getHttpServer());
 
@@ -50,6 +52,7 @@ describe('Dashboard, duplicates and scans (e2e)', () => {
     app.setGlobalPrefix('api');
     await app.init();
     ({ token, slug: firstSlug } = await signup('Dashboard Test Grill'));
+    categoryId = await createCuisineType(app.getHttpServer(), token, firstSlug);
   });
 
   afterAll(async () => {
@@ -93,12 +96,37 @@ describe('Dashboard, duplicates and scans (e2e)', () => {
     await http()
       .post(url)
       .set('Authorization', `Bearer ${token}`)
-      .send({ name: 'Seekh Kabab' })
+      .send({ name: 'Seekh Kabab', categoryId })
       .expect(201);
     await http()
       .post(url)
       .set('Authorization', `Bearer ${token}`)
-      .send({ name: 'seekh kabab' })
+      .send({ name: 'seekh kabab', categoryId })
+      .expect(409);
+  });
+
+  it('requires a cuisine type on every dish and keeps one in use from being deleted', async () => {
+    await http()
+      .post(`/api/restaurants/${firstSlug}/items`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ name: 'No Cuisine Dish' })
+      .expect(400);
+
+    const item = await http()
+      .post(`/api/restaurants/${firstSlug}/items`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ name: 'Mutton Pulao', categoryId })
+      .expect(201);
+    await http()
+      .patch(
+        `/api/restaurants/${firstSlug}/items/${item.body.publicSlug as string}`,
+      )
+      .set('Authorization', `Bearer ${token}`)
+      .send({ categoryId: null })
+      .expect(400);
+    await http()
+      .delete(`/api/restaurants/${firstSlug}/categories/${categoryId}`)
+      .set('Authorization', `Bearer ${token}`)
       .expect(409);
   });
 
@@ -107,12 +135,12 @@ describe('Dashboard, duplicates and scans (e2e)', () => {
     await http()
       .post(url)
       .set('Authorization', `Bearer ${token}`)
-      .send({ name: 'Big Platter', widthMm: 508 })
+      .send({ name: 'Big Platter', widthMm: 508, categoryId })
       .expect(201);
     await http()
       .post(url)
       .set('Authorization', `Bearer ${token}`)
-      .send({ name: 'Too Big', widthMm: 509 })
+      .send({ name: 'Too Big', widthMm: 509, categoryId })
       .expect(400);
   });
 
@@ -120,7 +148,7 @@ describe('Dashboard, duplicates and scans (e2e)', () => {
     const item = await http()
       .post(`/api/restaurants/${firstSlug}/items`)
       .set('Authorization', `Bearer ${token}`)
-      .send({ name: 'Chicken Karahi' })
+      .send({ name: 'Chicken Karahi', categoryId })
       .expect(201);
     const publicSlug = item.body.publicSlug as string;
 
@@ -147,7 +175,7 @@ describe('Dashboard, duplicates and scans (e2e)', () => {
         topDishes: { name: string }[];
       }[]
     ).find((r) => r.slug === firstSlug);
-    expect(first).toMatchObject({ scans: 1, dishes: 3 });
+    expect(first).toMatchObject({ scans: 1, dishes: 4 });
     expect(first?.topDishes[0].name).toBe('Chicken Karahi');
     expect(overview.body.totals.restaurants).toBe(2);
   });

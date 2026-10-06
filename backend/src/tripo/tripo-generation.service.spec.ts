@@ -270,7 +270,7 @@ describe('TripoGenerationService', () => {
       );
     });
 
-    it('passes the configured texture quality to Tripo', async () => {
+    it('defaults to the faster standard texture quality', async () => {
       prisma.menuItem.findUnique.mockResolvedValueOnce({
         id: 1,
         restaurantId: restaurant.id,
@@ -287,7 +287,7 @@ describe('TripoGenerationService', () => {
 
       expect(tripoClient.submitImageToModel).toHaveBeenCalledWith(
         'http://example.com/photo.jpg',
-        expect.objectContaining({ textureQuality: 'detailed' }),
+        expect.objectContaining({ textureQuality: 'standard' }),
       );
     });
   });

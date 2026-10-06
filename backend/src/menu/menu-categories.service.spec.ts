@@ -14,7 +14,9 @@ describe('MenuCategoriesService — duplicate cuisine types (mango points 2)', (
       findFirst: jest.Mock;
       findUnique: jest.Mock;
       update: jest.Mock;
+      delete: jest.Mock;
     };
+    menuItem: { count: jest.Mock };
   };
   const owner = { userId: 1, email: 'o@example.com', role: UserRole.OWNER };
 
@@ -25,7 +27,9 @@ describe('MenuCategoriesService — duplicate cuisine types (mango points 2)', (
         findFirst: jest.fn().mockResolvedValue(null),
         findUnique: jest.fn(),
         update: jest.fn(),
+        delete: jest.fn().mockResolvedValue({ id: 4 }),
       },
+      menuItem: { count: jest.fn().mockResolvedValue(0) },
     };
     const moduleRef = await Test.createTestingModule({
       providers: [
@@ -84,6 +88,44 @@ describe('MenuCategoriesService — duplicate cuisine types (mango points 2)', (
     expect(prisma.menuCategory.findFirst).toHaveBeenCalledWith({
       where: { restaurantId: 10, name: 'BBQ', NOT: { id: 4 } },
       select: { id: true },
+    });
+  });
+
+  describe('deleting a cuisine type (every dish needs one)', () => {
+    beforeEach(() => {
+      prisma.menuCategory.findUnique.mockResolvedValue({
+        id: 4,
+        restaurantId: 10,
+      });
+    });
+
+    it('refuses with a 409 while dishes still use it', async () => {
+      prisma.menuItem.count.mockResolvedValueOnce(2);
+
+      await expect(service.remove(10, 4, owner)).rejects.toBeInstanceOf(
+        ConflictException,
+      );
+      expect(prisma.menuCategory.delete).not.toHaveBeenCalled();
+    });
+
+    it('maps the FK restriction (a dish added mid-delete) to a 409', async () => {
+      prisma.menuCategory.delete.mockRejectedValueOnce(
+        new Prisma.PrismaClientKnownRequestError('Foreign key constraint', {
+          code: 'P2003',
+          clientVersion: 'test',
+        }),
+      );
+
+      await expect(service.remove(10, 4, owner)).rejects.toBeInstanceOf(
+        ConflictException,
+      );
+    });
+
+    it('deletes an empty cuisine type', async () => {
+      await service.remove(10, 4, owner);
+      expect(prisma.menuCategory.delete).toHaveBeenCalledWith({
+        where: { id: 4 },
+      });
     });
   });
 });

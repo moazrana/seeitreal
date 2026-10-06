@@ -26,7 +26,13 @@ export class RootQaService {
     return this.prisma.menuItem.findMany({
       where: { arStatus: 'qa' },
       orderBy: { updatedAt: 'asc' },
-      include: { restaurant: { select: { id: true, name: true, slug: true } } },
+      // Restaurant + cuisine type (MenuCategory) so the Root App can group
+      // the queue by restaurant and cuisine. Only display fields are
+      // selected — never the owner or billing relations.
+      include: {
+        restaurant: { select: { id: true, name: true, slug: true } },
+        category: { select: { id: true, name: true } },
+      },
     });
   }
 
