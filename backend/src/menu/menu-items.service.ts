@@ -45,9 +45,7 @@ export class MenuItemsService {
   ) {
     await this.restaurants.assertOwnership(restaurantId, user);
     await this.assertNameAvailable(restaurantId, dto.name);
-    if (dto.categoryId !== undefined) {
-      await this.assertCategoryBelongs(restaurantId, dto.categoryId);
-    }
+    await this.assertCategoryBelongs(restaurantId, dto.categoryId);
 
     return this.prisma.menuItem.create({
       include: PHOTOS_ORDERED,

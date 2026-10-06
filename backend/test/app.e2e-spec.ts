@@ -4,6 +4,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
 import type { App } from 'supertest/types';
 import { AppModule } from '../src/app.module';
+import { createCuisineType } from './helpers/cuisine-type';
 
 /**
  * Happy-path e2e per spec §8/§12: signup → create restaurant → add item.
@@ -60,14 +61,20 @@ describe('Signup -> restaurant -> menu item (e2e)', () => {
     const restaurantId = signupRes.body.restaurant.id as number;
     const restaurantSlug = signupRes.body.restaurant.slug as string;
 
+    const categoryId = await createCuisineType(
+      app.getHttpServer(),
+      accessToken,
+      restaurantSlug,
+    );
     const itemRes = await request(app.getHttpServer())
       .post(`/api/restaurants/${restaurantSlug}/items`)
       .set('Authorization', `Bearer ${accessToken}`)
-      .send({ name: 'Cheeseburger' })
+      .send({ name: 'Cheeseburger', categoryId })
       .expect(201);
 
     expect(itemRes.body).toMatchObject({
       name: 'Cheeseburger',
+      categoryId,
       arStatus: 'pending',
       restaurantId,
     });

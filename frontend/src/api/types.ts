@@ -1,4 +1,10 @@
-import type { ArStatus, BusinessType, PaymentGateway, SubscriptionStatus, UserRole } from '@ar-menu/shared';
+import type {
+  ArStatus,
+  BusinessType,
+  PaymentGateway,
+  SubscriptionStatus,
+  UserRole,
+} from '@ar-menu/shared';
 
 export interface PublicUser {
   id: number;
@@ -35,7 +41,7 @@ export interface MenuItemPhoto {
 export interface MenuItem {
   id: number;
   restaurantId: number;
-  categoryId: number | null;
+  categoryId: number;
   name: string;
   description: string | null;
   photoUrl: string | null;
@@ -114,12 +120,7 @@ export interface ApiErrorBody {
   error?: string;
 }
 
-// ---- Analytics (mango points 2): scans = opens of a dish's public AR page.
-
-export interface ItemScanCount {
-  itemId: number;
-  scans: number;
-}
+// ---- Dashboard overview (mango points 2).
 
 export interface RestaurantOverview {
   id: number;
@@ -127,11 +128,9 @@ export interface RestaurantOverview {
   slug: string;
   dishes: number;
   statusCounts: Record<ArStatus, number>;
-  scans: number;
-  topDishes: { name: string; publicSlug: string; scans: number }[];
 }
 
 export interface DashboardOverview {
-  totals: { restaurants: number; dishes: number; live: number; inReview: number; scans: number };
+  totals: { restaurants: number; dishes: number; live: number; inReview: number };
   restaurants: RestaurantOverview[];
 }

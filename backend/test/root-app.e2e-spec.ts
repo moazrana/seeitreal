@@ -6,6 +6,7 @@ import { authenticator } from 'otplib';
 import request from 'supertest';
 import type { App } from 'supertest/types';
 import { AppModule } from '../src/app.module';
+import { createCuisineType } from './helpers/cuisine-type';
 import { PrismaService } from '../src/prisma/prisma.service';
 
 /**
@@ -146,10 +147,15 @@ describe('Root App (e2e)', () => {
 
     const { accessToken: ownerAccess, restaurantSlug } = await signupAndLogin();
 
+    const categoryId = await createCuisineType(
+      app.getHttpServer(),
+      ownerAccess,
+      restaurantSlug,
+    );
     const itemRes = await request(app.getHttpServer())
       .post(`/api/restaurants/${restaurantSlug}/items`)
       .set('Authorization', `Bearer ${ownerAccess}`)
-      .send({ name: 'Suspend Test Dish' })
+      .send({ name: 'Suspend Test Dish', categoryId })
       .expect(201);
     const publicSlug = itemRes.body.publicSlug as string;
 
@@ -211,10 +217,15 @@ describe('Root App (e2e)', () => {
     const { accessToken: rootAccess } = await loginAndEnroll(rootEmail);
     const { accessToken: ownerAccess, restaurantSlug } = await signupAndLogin();
 
+    const categoryId = await createCuisineType(
+      app.getHttpServer(),
+      ownerAccess,
+      restaurantSlug,
+    );
     const itemRes = await request(app.getHttpServer())
       .post(`/api/restaurants/${restaurantSlug}/items`)
       .set('Authorization', `Bearer ${ownerAccess}`)
-      .send({ name: 'Root QA Dish' })
+      .send({ name: 'Root QA Dish', categoryId })
       .expect(201);
     const itemId = itemRes.body.id as number;
 
@@ -233,8 +244,12 @@ describe('Root App (e2e)', () => {
       .set('Authorization', `Bearer ${rootAccess}`)
       .expect(200)
       .expect((res) => {
-        const items = res.body as { id: number }[];
-        expect(items.some((i) => i.id === itemId)).toBe(true);
+        const items = res.body as {
+          id: number;
+          category: { id: number; name: string };
+        }[];
+        const queued = items.find((i) => i.id === itemId);
+        expect(queued?.category).toEqual({ id: categoryId, name: 'Mains' });
       });
 
     // The old /api/admin/* routes are gone entirely.

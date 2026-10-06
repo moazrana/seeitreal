@@ -48,3 +48,11 @@
   background: var(--tint-teal-bg);
   color: var(--tint-teal-text);
 }
+
+/* Same colour as the cuisine's spine on each dish card. */
+.dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  background: hsl(var(--cuisine-hue) 70% 52%);
+}

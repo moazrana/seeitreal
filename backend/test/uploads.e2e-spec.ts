@@ -5,6 +5,7 @@ import request from 'supertest';
 import sharp from 'sharp';
 import type { App } from 'supertest/types';
 import { AppModule } from '../src/app.module';
+import { createCuisineType } from './helpers/cuisine-type';
 
 /**
  * Covers what the main happy-path e2e doesn't: the real §7.5 upload
@@ -64,10 +65,16 @@ describe('Uploads (e2e)', () => {
     restaurantSlug: string,
     label: string,
   ) {
+    const categoryId = await createCuisineType(
+      app.getHttpServer(),
+      accessToken,
+      restaurantSlug,
+      `Cuisine ${randomUUID().slice(0, 8)}`,
+    );
     const itemRes = await request(app.getHttpServer())
       .post(`/api/restaurants/${restaurantSlug}/items`)
       .set('Authorization', `Bearer ${accessToken}`)
-      .send({ name: `${label} Dish` })
+      .send({ name: `${label} Dish`, categoryId })
       .expect(201);
     return { itemSlug: itemRes.body.publicSlug as string };
   }

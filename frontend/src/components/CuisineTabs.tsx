@@ -1,6 +1,6 @@
 import { useRef } from 'react';
 import type { KeyboardEvent } from 'react';
-import { cuisineTabId } from '../lib/cuisine';
+import { cuisineStyle, cuisineTabId } from '../lib/cuisine';
 import type { CuisineFilter, CuisineTab } from '../lib/cuisine';
 import styles from './CuisineTabs.module.css';
 
@@ -44,7 +44,12 @@ export function CuisineTabs({ tabs, active, onChange, panelId }: CuisineTabsProp
   }
 
   return (
-    <div role="tablist" aria-label="Cuisine types" className={styles.tabs} onKeyDown={handleKeyDown}>
+    <div
+      role="tablist"
+      aria-label="Cuisine types"
+      className={styles.tabs}
+      onKeyDown={handleKeyDown}
+    >
       {tabs.map((tab, index) => {
         const selected = tab.value === active;
         return (
@@ -62,6 +67,9 @@ export function CuisineTabs({ tabs, active, onChange, panelId }: CuisineTabsProp
             className={styles.tab}
             onClick={() => onChange(tab.value)}
           >
+            {typeof tab.value === 'number' && (
+              <span className={styles.dot} style={cuisineStyle(tab.value)} aria-hidden="true" />
+            )}
             {tab.label}
             <span className={styles.count}>{tab.count}</span>
           </button>

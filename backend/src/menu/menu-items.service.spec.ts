@@ -69,8 +69,15 @@ describe('MenuItemsService', () => {
 
   it('creates an item with a generated public slug after checking ownership', async () => {
     prisma.menuItem.create.mockResolvedValueOnce({ id: 1, name: 'Burger' });
+    prisma.menuCategory.findUnique.mockResolvedValueOnce({
+      id: 3,
+      restaurantId: restaurant.id,
+    });
 
-    await service.create(restaurant.id, owner, { name: 'Burger' });
+    await service.create(restaurant.id, owner, {
+      name: 'Burger',
+      categoryId: 3,
+    });
 
     expect(restaurants.assertOwnership).toHaveBeenCalledWith(
       restaurant.id,
@@ -80,6 +87,7 @@ describe('MenuItemsService', () => {
       expect.objectContaining({
         data: expect.objectContaining({
           name: 'Burger',
+          categoryId: 3,
           publicSlug: expect.stringMatching(/^burger-[0-9a-f]{8}$/),
         }),
       }),
@@ -237,7 +245,10 @@ describe('MenuItemsService', () => {
       prisma.menuItem.findFirst.mockResolvedValueOnce({ id: 3 });
 
       await expect(
-        service.create(restaurant.id, owner, { name: 'Chicken Karahi' }),
+        service.create(restaurant.id, owner, {
+          name: 'Chicken Karahi',
+          categoryId: 3,
+        }),
       ).rejects.toBeInstanceOf(ConflictException);
       expect(prisma.menuItem.findFirst).toHaveBeenCalledWith({
         where: { restaurantId: restaurant.id, name: 'Chicken Karahi' },

@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import { Cron } from '@nestjs/schedule';
 import { TripoGenerationService } from './tripo-generation.service';
 
 @Injectable()
@@ -9,7 +9,10 @@ export class TripoPollCron {
 
   constructor(private readonly generation: TripoGenerationService) {}
 
-  @Cron(CronExpression.EVERY_MINUTE)
+  // Every 15s: once a webhook is missed, the finished model is picked up
+  // within seconds instead of up to a minute later. Only tasks past
+  // POLL_MIN_AGE_MS are checked, so this is a no-op while webhooks work.
+  @Cron('*/15 * * * * *')
   async handleCron() {
     if (this.running) return; // don't overlap a slow run with the next tick
     this.running = true;

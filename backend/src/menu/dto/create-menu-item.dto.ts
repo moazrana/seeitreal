@@ -12,9 +12,10 @@ import { MAX_DIMENSION_MM, MIN_DIMENSION_MM } from '@ar-menu/shared';
 import { Trim } from '../../common/decorators/trim.decorator';
 
 export class CreateMenuItemDto {
-  @IsOptional()
+  // Cuisine type — required: every dish belongs to one.
   @IsInt()
-  categoryId?: number;
+  @Min(1)
+  categoryId!: number;
 
   @Trim()
   @IsString()

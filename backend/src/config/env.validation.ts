@@ -144,9 +144,9 @@ class EnvironmentVariables {
   @IsString()
   TRIPO_MODEL_VERSION?: string;
 
-  // Highest-quality texture option (documents/3d-model-enhancement.md §2) —
-  // configurable so it can be tuned without a code change. Defaults to
-  // 'detailed' in TripoGenerationService if unset.
+  // Tripo texture quality — configurable so speed vs. sharpness can be
+  // tuned without a code change. Defaults to 'standard' (faster) in
+  // TripoGenerationService if unset.
   @IsOptional()
   @IsString()
   TRIPO_TEXTURE_QUALITY?: string;

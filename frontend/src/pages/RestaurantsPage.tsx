@@ -21,7 +21,7 @@ function slugify(value: string): string {
 }
 
 // Dashboard refresh cadence — counts change slowly (new dishes, models
-// finishing QA, diners scanning QR codes).
+// finishing QA).
 const REFRESH_MS = 30_000;
 
 function StatTile({ label, value }: { label: string; value: number }) {
@@ -49,10 +49,6 @@ function RestaurantCard({ restaurant }: { restaurant: RestaurantOverview }) {
           <h2 className={s.cardTitle}>{restaurant.name}</h2>
           <p className={s.cardSlug}>/{restaurant.slug}</p>
         </div>
-        <div className={s.scanBadge} aria-label={`${restaurant.scans} QR scans`}>
-          <span className={s.scanValue}>{restaurant.scans.toLocaleString()}</span>
-          <span className={s.scanLabel}>QR scans</span>
-        </div>
       </div>
 
       <dl className={s.counts}>
@@ -64,20 +60,6 @@ function RestaurantCard({ restaurant }: { restaurant: RestaurantOverview }) {
         ))}
       </dl>
 
-      {restaurant.topDishes.length > 0 && (
-        <div className={s.topDishes}>
-          <h3 className={s.topDishesTitle}>Most scanned dishes</h3>
-          <ol>
-            {restaurant.topDishes.map((dish) => (
-              <li key={dish.publicSlug}>
-                <span>{dish.name}</span>
-                <span className={s.topDishScans}>{dish.scans.toLocaleString()}</span>
-              </li>
-            ))}
-          </ol>
-        </div>
-      )}
-
       <Link to={`/restaurants/${restaurant.slug}`} className={s.cardLink}>
         Manage menu →
       </Link>
@@ -87,8 +69,8 @@ function RestaurantCard({ restaurant }: { restaurant: RestaurantOverview }) {
 
 /**
  * The signed-in user's dashboard (mango points 2): totals across all their
- * restaurants, then a card per restaurant with dish/AR-status counts, QR
- * scans and its most-scanned dishes. All figures come from one aggregated
+ * restaurants, then a card per restaurant with its dish/AR-status counts.
+ * All figures come from one aggregated
  * API call (GET /dashboard/overview), scoped server-side to the user.
  */
 export function RestaurantsPage() {
@@ -156,7 +138,6 @@ export function RestaurantsPage() {
             <StatTile label="Dishes" value={overview.totals.dishes} />
             <StatTile label="Live in AR" value={overview.totals.live} />
             <StatTile label="In review" value={overview.totals.inReview} />
-            <StatTile label="QR scans" value={overview.totals.scans} />
           </div>
         )}
       </div>

@@ -4,6 +4,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
 import type { App } from 'supertest/types';
 import { AppModule } from '../src/app.module';
+import { createCuisineType } from './helpers/cuisine-type';
 import { PrismaService } from '../src/prisma/prisma.service';
 
 /**
@@ -18,6 +19,7 @@ describe('Diner AR viewer (e2e)', () => {
   let prisma: PrismaService;
   let accessToken: string;
   let restaurantSlug: string;
+  let categoryId: number;
 
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -50,6 +52,11 @@ describe('Diner AR viewer (e2e)', () => {
       .expect(201);
     accessToken = signupRes.body.accessToken as string;
     restaurantSlug = signupRes.body.restaurant.slug as string;
+    categoryId = await createCuisineType(
+      app.getHttpServer(),
+      accessToken,
+      restaurantSlug,
+    );
   });
 
   afterAll(async () => {
@@ -60,7 +67,7 @@ describe('Diner AR viewer (e2e)', () => {
     const res = await request(app.getHttpServer())
       .post(`/api/restaurants/${restaurantSlug}/items`)
       .set('Authorization', `Bearer ${accessToken}`)
-      .send({ name, description })
+      .send({ name, description, categoryId })
       .expect(201);
     return res.body as { id: number; publicSlug: string };
   }

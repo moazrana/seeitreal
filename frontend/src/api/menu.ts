@@ -9,7 +9,7 @@ export interface CreateCategoryInput {
 export interface CreateItemInput {
   name: string;
   description?: string;
-  categoryId?: number;
+  categoryId: number;
   // Real-world dish dimensions in millimetres (documents/TASK-real-world-ar-sizing.md).
   widthMm?: number;
   heightMm?: number;

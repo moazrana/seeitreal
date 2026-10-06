@@ -17,7 +17,8 @@ import type { TripoTaskResult } from './tripo.types';
 
 // Poll fallback only looks at jobs that have had a fair chance to arrive
 // via webhook first (spec §11.2: webhook preferred, polling is fallback).
-const POLL_MIN_AGE_MS = 2 * 60 * 1000;
+// Kept short: a missed webhook shouldn't add minutes to a ~1-minute job.
+const POLL_MIN_AGE_MS = 30 * 1000;
 
 // Tripo's multiview endpoint has a fixed max input count. If an owner
 // uploaded more than this, we cap it here — see
@@ -80,8 +81,11 @@ export class TripoGenerationService {
     const generationOptions = {
       texture: true,
       pbr: true,
+      // 'standard' by default — 'detailed' texturing noticeably lengthens
+      // every job; set TRIPO_TEXTURE_QUALITY=detailed to trade speed back
+      // for texture sharpness.
       textureQuality:
-        this.config.get<string>('TRIPO_TEXTURE_QUALITY') ?? 'detailed',
+        this.config.get<string>('TRIPO_TEXTURE_QUALITY') ?? 'standard',
       callbackUrl,
     };
     // Routing (documents/3d-model-enhancement.md §1): a single photo uses
@@ -158,6 +162,10 @@ export class TripoGenerationService {
       return;
     }
 
+    // The preview thumbnail doesn't depend on the model — re-host it while
+    // the GLB is processed instead of after (never rejects).
+    const previewPromise = this.rehostPreview(result.taskId, result.output);
+
     // Tripo's result URL expires in ~24h — download and re-host immediately,
     // never store their URL directly (spec §11.4).
     let glbBuffer = await this.downloadToBuffer(result.output.modelUrl);
@@ -194,50 +202,18 @@ export class TripoGenerationService {
       `Tripo task ${result.taskId}`,
     );
 
-    const { url: modelGlbUrl } = await this.storage.putObject({
-      key: this.storage.generateKey('model-glb', 'glb'),
-      body: glbBuffer,
-      contentType: 'model/gltf-binary',
-    });
-
-    let previewImageUrl: string | null = null;
-    if (result.output.renderedImageUrl) {
-      try {
-        const previewBuffer = await this.downloadToBuffer(
-          result.output.renderedImageUrl,
-        );
-        const stored = await this.storage.putObject({
-          key: this.storage.generateKey('model-preview', 'jpg'),
-          body: previewBuffer,
-          contentType: 'image/jpeg',
-        });
-        previewImageUrl = stored.url;
-      } catch (err) {
-        this.logger.warn(
-          `Failed to re-host preview image for task ${result.taskId}: ${String(err)}`,
-        );
-      }
-    }
-
-    let modelUsdzUrl: string | null = null;
-    let qaNote: string | null = null;
-    try {
-      const usdzBuffer = await this.usdz.convert(glbBuffer);
-      const stored = await this.storage.putObject({
-        key: this.storage.generateKey('model-usdz', 'usdz'),
-        body: usdzBuffer,
-        contentType: 'model/vnd.usdz+zip',
-      });
-      modelUsdzUrl = stored.url;
-    } catch (err) {
-      // Spec §11.3: an item isn't AR-ready without both files — leave
-      // modelUsdzUrl unset and flag it. AdminService.approve refuses to
-      // publish an item missing either URL, so this can't slip through.
-      this.logger.warn(
-        `USDZ conversion failed for task ${result.taskId}: ${String(err)}`,
-      );
-      qaNote = `GLB generated, but USDZ conversion failed (task ${result.taskId}). See server logs.`;
-    }
+    // Uploading the GLB and converting it to USDZ are independent — run
+    // them together rather than back to back.
+    const [{ url: modelGlbUrl }, { modelUsdzUrl, qaNote }, previewImageUrl] =
+      await Promise.all([
+        this.storage.putObject({
+          key: this.storage.generateKey('model-glb', 'glb'),
+          body: glbBuffer,
+          contentType: 'model/gltf-binary',
+        }),
+        this.convertAndStoreUsdz(glbBuffer, result.taskId),
+        previewPromise,
+      ]);
 
     await this.prisma.menuItem.update({
       where: { id: item.id },
@@ -252,6 +228,57 @@ export class TripoGenerationService {
     this.logger.log(
       `Item ${item.id}: Tripo task ${result.taskId} complete, moved to qa`,
     );
+  }
+
+  /** Best-effort: a missing preview never blocks the model from QA. */
+  private async rehostPreview(
+    taskId: string,
+    output: NonNullable<TripoTaskResult['output']>,
+  ): Promise<string | null> {
+    if (!output.renderedImageUrl) return null;
+    try {
+      const previewBuffer = await this.downloadToBuffer(
+        output.renderedImageUrl,
+      );
+      const stored = await this.storage.putObject({
+        key: this.storage.generateKey('model-preview', 'jpg'),
+        body: previewBuffer,
+        contentType: 'image/jpeg',
+      });
+      return stored.url;
+    } catch (err) {
+      this.logger.warn(
+        `Failed to re-host preview image for task ${taskId}: ${String(err)}`,
+      );
+      return null;
+    }
+  }
+
+  /** Never rejects — a failed conversion becomes a QA note instead. */
+  private async convertAndStoreUsdz(
+    glbBuffer: Buffer,
+    taskId: string,
+  ): Promise<{ modelUsdzUrl: string | null; qaNote: string | null }> {
+    try {
+      const usdzBuffer = await this.usdz.convert(glbBuffer);
+      const stored = await this.storage.putObject({
+        key: this.storage.generateKey('model-usdz', 'usdz'),
+        body: usdzBuffer,
+        contentType: 'model/vnd.usdz+zip',
+      });
+      return { modelUsdzUrl: stored.url, qaNote: null };
+    } catch (err) {
+      // Spec §11.3: an item isn't AR-ready without both files — leave
+      // modelUsdzUrl unset and flag it. AdminService.approve refuses to
+      // publish an item missing either URL, so this can't slip through.
+      this.logger.warn(
+        `USDZ conversion failed for task ${taskId}: ${String(err)}`,
+      );
+      return {
+        modelUsdzUrl: null,
+        qaNote: `GLB generated, but USDZ conversion failed (task ${taskId}). See server logs.`,
+      };
+    }
   }
 
   /** Poll fallback for missed webhooks (spec §11.1). */

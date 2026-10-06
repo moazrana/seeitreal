@@ -186,6 +186,13 @@
   transition: border-color 0.2s ease;
 }
 
+.categoryChipDot {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  background: hsl(var(--cuisine-hue) 70% 52%);
+}
+
 .categoryChip:hover {
   border-color: var(--accent-strong);
 }
@@ -329,6 +336,58 @@
   font-size: 0.8rem;
 }
 
+/* Cuisine ribbon: a bookmark hanging from the top of the photo with the
+   cuisine name running down it, coloured per cuisine (--cuisine-hue, set
+   inline from the category id) to match that cuisine's tab and chip. It
+   sits over the photo, so it carries its own dark-enough fill and white
+   text in both themes. */
+.cuisineSpine {
+  position: absolute;
+  top: 0;
+  left: 0.85rem;
+  z-index: 1;
+  max-height: calc(100% - 1.25rem);
+  padding: 0.7rem 0.3rem 1.1rem;
+  overflow: hidden;
+  writing-mode: vertical-rl;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: linear-gradient(
+    180deg,
+    hsl(var(--cuisine-hue) 72% 34%),
+    hsl(var(--cuisine-hue) 68% 46%)
+  );
+  box-shadow: 0 6px 14px hsl(var(--cuisine-hue) 60% 20% / 0.35);
+  /* Notched tail, like a fabric bookmark. */
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 50% calc(100% - 0.5rem), 0 100%);
+  color: #fff;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.35);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .cuisineSpine {
+    transition: padding-bottom 0.25s ease;
+  }
+
+  /* The ribbon "drops" a little further on hover. */
+  .dishCard:hover .cuisineSpine {
+    padding-bottom: 1.5rem;
+  }
+}
+
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 .dishStatusPin {
   position: absolute;
   top: 0.6rem;
@@ -352,13 +411,6 @@
   margin: 0;
   color: var(--text-muted);
   font-size: 0.85rem;
-}
-
-.dishScans {
-  margin: -0.35rem 0 0.6rem;
-  color: var(--accent-strong);
-  font-size: 0.8rem;
-  font-weight: 600;
 }
 
 .dishDimForm {

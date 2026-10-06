@@ -280,7 +280,9 @@ model MenuCategory {
 model MenuItem {
   id              Int       @id @default(autoincrement())
   restaurantId    Int       @map("restaurant_id")
-  categoryId      Int?      @map("category_id")
+  // Cuisine type — required (every dish belongs to one). RESTRICT on the
+  // FK: a cuisine type can't be deleted while dishes still use it.
+  categoryId      Int       @map("category_id")
   name            String    @db.VarChar(200)
   description     String?   @db.Text
   // Denormalized copy of photos[0].url (the "display" photo) — kept so the
@@ -322,7 +324,7 @@ model MenuItem {
   updatedAt       DateTime  @updatedAt @map("updated_at")
 
   restaurant Restaurant      @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
-  category   MenuCategory?   @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  category   MenuCategory    @relation(fields: [categoryId], references: [id], onDelete: Restrict)
   dealItems  DealItem[]
   photos     MenuItemPhoto[]
 
