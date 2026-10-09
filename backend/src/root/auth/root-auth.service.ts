@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
@@ -6,8 +6,14 @@ import * as argon2 from 'argon2';
 import { RootAdminRole } from '@ar-menu/shared';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RootAuditService } from '../audit/root-audit.service';
-import type { RootTotpChallengePayload } from '../types/root-totp-challenge-payload.interface';
-import type { RootJwtPayload } from '../types/root-jwt-payload.interface';
+import {
+  ROOT_CHALLENGE_AUDIENCE,
+  type RootTotpChallengePayload,
+} from '../types/root-totp-challenge-payload.interface';
+import {
+  ROOT_ACCESS_AUDIENCE,
+  type RootJwtPayload,
+} from '../types/root-jwt-payload.interface';
 import type { RootLoginDto } from './dto/root-login.dto';
 import type { RootTotpVerifyDto } from './dto/root-totp-verify.dto';
 import { TotpService } from './totp.service';
@@ -17,6 +23,8 @@ const LOCKOUT_MINUTES = 15;
 // Short-lived and single-purpose, not a session — just long enough to type
 // a 6-digit code from an authenticator app.
 const CHALLENGE_TTL_MS = 5 * 60_000;
+const LOCKED_MESSAGE =
+  'Account temporarily locked due to repeated failed logins';
 // A pre-computed argon2id hash of a random value, used only to keep
 // login's timing profile the same for "unknown email" as for "wrong
 // password" — never actually matches a real password. Same technique as
@@ -55,17 +63,15 @@ export class RootAuthService {
       throw new UnauthorizedException('Invalid email or password');
     }
 
-    if (admin.lockedUntil && admin.lockedUntil > new Date()) {
-      throw new UnauthorizedException(
-        'Account temporarily locked due to repeated failed logins',
-      );
+    if (this.isLocked(admin)) {
+      throw new UnauthorizedException(LOCKED_MESSAGE);
     }
 
     const valid = await argon2
       .verify(admin.passwordHash, dto.password)
       .catch(() => false);
     if (!valid) {
-      await this.registerFailedLogin(admin.id, admin.failedLoginAttempts);
+      await this.registerFailedLogin(admin.id);
       await this.audit.log(
         admin.id,
         'root_login_failed',
@@ -123,21 +129,36 @@ export class RootAuthService {
    * TOTP, issue backup codes (shown once), then issue a full session. */
   async verifyTotpSetup(dto: RootTotpVerifyDto, ip: string | undefined) {
     const payload = await this.verifyChallenge(dto.token, 'totp_setup');
-    const admin = await this.requireAdmin(payload.sub);
+    const admin = await this.requireChallengeAdmin(payload);
     if (!admin.totpSecretEncrypted) {
       throw new UnauthorizedException('No pending TOTP setup for this account');
     }
 
     const secret = this.totp.decryptSecret(admin.totpSecretEncrypted);
     if (!this.totp.verifyCode(dto.code, secret)) {
+      await this.registerFailedLogin(admin.id);
+      await this.audit.log(
+        admin.id,
+        'root_totp_failed',
+        undefined,
+        undefined,
+        undefined,
+        ip,
+      );
       throw new UnauthorizedException('Invalid verification code');
     }
+    await this.consumeChallenge(payload);
 
     const { raw: backupCodes, hashedJson } =
       await this.totp.generateBackupCodes();
     await this.prisma.rootAdminUser.update({
       where: { id: admin.id },
-      data: { totpEnabled: true, backupCodesHashed: hashedJson },
+      data: {
+        totpEnabled: true,
+        backupCodesHashed: hashedJson,
+        failedLoginAttempts: 0,
+        lockedUntil: null,
+      },
     });
     await this.audit.log(
       admin.id,
@@ -168,7 +189,7 @@ export class RootAuthService {
    * single-use backup code, then issue a full session. */
   async verifyTotp(dto: RootTotpVerifyDto, ip: string | undefined) {
     const payload = await this.verifyChallenge(dto.token, 'totp_login');
-    const admin = await this.requireAdmin(payload.sub);
+    const admin = await this.requireChallengeAdmin(payload);
     if (!admin.totpEnabled || !admin.totpSecretEncrypted) {
       throw new UnauthorizedException('TOTP is not enabled for this account');
     }
@@ -199,7 +220,7 @@ export class RootAuthService {
     }
 
     if (!ok) {
-      await this.registerFailedLogin(admin.id, admin.failedLoginAttempts);
+      await this.registerFailedLogin(admin.id);
       await this.audit.log(
         admin.id,
         'root_totp_failed',
@@ -210,6 +231,7 @@ export class RootAuthService {
       );
       throw new UnauthorizedException('Invalid verification code');
     }
+    await this.consumeChallenge(payload);
 
     if (admin.failedLoginAttempts > 0 || admin.lockedUntil) {
       await this.prisma.rootAdminUser.update({
@@ -241,6 +263,9 @@ export class RootAuthService {
         secret: this.config.get<string>('ROOT_JWT_REFRESH_SECRET'),
       });
     } catch {
+      throw new UnauthorizedException('Invalid or expired refresh token');
+    }
+    if (payload.typ !== 'refresh') {
       throw new UnauthorizedException('Invalid or expired refresh token');
     }
 
@@ -287,9 +312,22 @@ export class RootAuthService {
     adminId: number,
     purpose: ChallengePurpose,
   ): Promise<string> {
-    const payload: RootTotpChallengePayload = { sub: adminId, purpose };
+    const jti = randomUUID();
+    // Only the newest challenge is valid: storing its jti invalidates any
+    // earlier challenge token for this admin.
+    await this.prisma.rootAdminUser.update({
+      where: { id: adminId },
+      data: { totpChallengeJti: jti },
+    });
+    const payload: RootTotpChallengePayload = {
+      sub: adminId,
+      purpose,
+      typ: 'totp_challenge',
+      jti,
+    };
     return this.jwt.signAsync(payload, {
       secret: this.config.get<string>('ROOT_JWT_ACCESS_SECRET'),
+      audience: ROOT_CHALLENGE_AUDIENCE,
       expiresIn: Math.floor(CHALLENGE_TTL_MS / 1000),
     });
   }
@@ -302,35 +340,68 @@ export class RootAuthService {
     try {
       payload = await this.jwt.verifyAsync<RootTotpChallengePayload>(token, {
         secret: this.config.get<string>('ROOT_JWT_ACCESS_SECRET'),
+        audience: ROOT_CHALLENGE_AUDIENCE,
       });
     } catch {
       throw new UnauthorizedException('Invalid or expired challenge');
     }
-    if (payload.purpose !== expectedPurpose) {
+    if (
+      payload.typ !== 'totp_challenge' ||
+      payload.purpose !== expectedPurpose ||
+      !payload.jti
+    ) {
       throw new UnauthorizedException('Invalid or expired challenge');
     }
     return payload;
   }
 
-  private async requireAdmin(id: number) {
+  /** Loads the challenge's admin, enforcing lockout at the 2FA step too
+   * (wrong codes count toward it) and rejecting any challenge that is not
+   * the admin's current, unused one. */
+  private async requireChallengeAdmin(payload: RootTotpChallengePayload) {
     const admin = await this.prisma.rootAdminUser.findUnique({
-      where: { id },
+      where: { id: payload.sub },
     });
-    if (!admin) {
+    if (!admin || admin.totpChallengeJti !== payload.jti) {
       throw new UnauthorizedException('Invalid or expired challenge');
+    }
+    if (this.isLocked(admin)) {
+      throw new UnauthorizedException(LOCKED_MESSAGE);
     }
     return admin;
   }
 
-  private async registerFailedLogin(adminId: number, currentAttempts: number) {
-    const attempts = currentAttempts + 1;
-    const data: { failedLoginAttempts: number; lockedUntil?: Date } = {
-      failedLoginAttempts: attempts,
-    };
-    if (attempts >= MAX_FAILED_LOGIN_ATTEMPTS) {
-      data.lockedUntil = new Date(Date.now() + LOCKOUT_MINUTES * 60_000);
+  /** Atomically marks the challenge used, so two concurrent requests with
+   * the same token can't both turn it into a session. */
+  private async consumeChallenge(payload: RootTotpChallengePayload) {
+    const { count } = await this.prisma.rootAdminUser.updateMany({
+      where: { id: payload.sub, totpChallengeJti: payload.jti },
+      data: { totpChallengeJti: null },
+    });
+    if (count !== 1) {
+      throw new UnauthorizedException('Invalid or expired challenge');
     }
-    await this.prisma.rootAdminUser.update({ where: { id: adminId }, data });
+  }
+
+  private isLocked(admin: { lockedUntil: Date | null }): boolean {
+    return !!admin.lockedUntil && admin.lockedUntil > new Date();
+  }
+
+  /** Atomic increment, so parallel wrong guesses can't undercount. */
+  private async registerFailedLogin(adminId: number) {
+    const { failedLoginAttempts } = await this.prisma.rootAdminUser.update({
+      where: { id: adminId },
+      data: { failedLoginAttempts: { increment: 1 } },
+      select: { failedLoginAttempts: true },
+    });
+    if (failedLoginAttempts >= MAX_FAILED_LOGIN_ATTEMPTS) {
+      await this.prisma.rootAdminUser.update({
+        where: { id: adminId },
+        data: {
+          lockedUntil: new Date(Date.now() + LOCKOUT_MINUTES * 60_000),
+        },
+      });
+    }
   }
 
   private async issueSession(
@@ -338,20 +409,27 @@ export class RootAuthService {
     email: string,
     role: RootAdminRole,
   ) {
-    const payload: RootJwtPayload = { sub: adminId, email, role };
+    const accessPayload: RootJwtPayload = {
+      sub: adminId,
+      email,
+      role,
+      typ: 'access',
+    };
+    const refreshPayload: RootJwtPayload = { ...accessPayload, typ: 'refresh' };
 
     const accessExpiresIn = this.config.get<string>(
       'ROOT_JWT_ACCESS_EXPIRES_IN',
     )!;
-    const accessToken = await this.jwt.signAsync(payload, {
+    const accessToken = await this.jwt.signAsync(accessPayload, {
       secret: this.config.get<string>('ROOT_JWT_ACCESS_SECRET'),
+      audience: ROOT_ACCESS_AUDIENCE,
       expiresIn: Math.floor(this.parseDurationMs(accessExpiresIn) / 1000),
     });
 
     const refreshExpiresIn = this.config.get<string>(
       'ROOT_JWT_REFRESH_EXPIRES_IN',
     )!;
-    const refreshToken = await this.jwt.signAsync(payload, {
+    const refreshToken = await this.jwt.signAsync(refreshPayload, {
       secret: this.config.get<string>('ROOT_JWT_REFRESH_SECRET'),
       expiresIn: Math.floor(this.parseDurationMs(refreshExpiresIn) / 1000),
     });

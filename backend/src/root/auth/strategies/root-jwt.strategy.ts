@@ -5,7 +5,10 @@ import { ExtractJwt, Strategy } from 'passport-jwt';
 import { RootAdminRole } from '@ar-menu/shared';
 import { PrismaService } from '../../../prisma/prisma.service';
 import type { AuthenticatedRootAdmin } from '../../types/authenticated-root-admin.interface';
-import type { RootJwtPayload } from '../../types/root-jwt-payload.interface';
+import {
+  ROOT_ACCESS_AUDIENCE,
+  type RootJwtPayload,
+} from '../../types/root-jwt-payload.interface';
 
 /** Registered as 'root-jwt' (not 'jwt') — a distinct Passport strategy name
  * from the customer app's JwtStrategy, so both can coexist in one process
@@ -20,10 +23,18 @@ export class RootJwtStrategy extends PassportStrategy(Strategy, 'root-jwt') {
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
       secretOrKey: config.get<string>('ROOT_JWT_ACCESS_SECRET')!,
+      // 2FA challenge tokens share this secret, so only full-session access
+      // tokens (this audience) may authenticate a request.
+      audience: ROOT_ACCESS_AUDIENCE,
     });
   }
 
   async validate(payload: RootJwtPayload): Promise<AuthenticatedRootAdmin> {
+    // Defense in depth on top of the audience check: a password-only 2FA
+    // challenge token must never grant a session.
+    if (payload.typ !== 'access') {
+      throw new UnauthorizedException();
+    }
     // Re-check the admin still exists on every request — a short-lived
     // access token for a since-removed admin should stop working
     // immediately rather than waiting out its own expiry.
