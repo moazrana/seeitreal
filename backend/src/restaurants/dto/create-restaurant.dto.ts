@@ -1,11 +1,4 @@
-import {
-  IsOptional,
-  IsString,
-  IsUrl,
-  Matches,
-  MaxLength,
-  MinLength,
-} from 'class-validator';
+import { IsString, Matches, MaxLength, MinLength } from 'class-validator';
 
 export class CreateRestaurantDto {
   @IsString()
@@ -21,10 +14,8 @@ export class CreateRestaurantDto {
   })
   slug!: string;
 
-  @IsOptional()
-  @IsUrl()
-  @MaxLength(2048)
-  logoUrl?: string;
+  // No logoUrl here: logos only arrive through the upload endpoint
+  // (spec §7.5), which sets the URL to our own storage.
 
   @IsString()
   @MinLength(5)

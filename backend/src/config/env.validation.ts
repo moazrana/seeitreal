@@ -164,6 +164,12 @@ class EnvironmentVariables {
   @Matches(/^\d+$/)
   TRIPO_FACE_LIMIT?: string;
 
+  // Max Tripo jobs one user may submit per rolling 24 hours (each is a paid
+  // call). Defaults to 20 in TripoGenerationService.
+  @IsOptional()
+  @Matches(/^\d+$/)
+  TRIPO_DAILY_GENERATIONS_PER_USER?: string;
+
   // Image-based lighting for the diner AR viewer's <model-viewer>
   // (documents/3d-model-enhancement.md §3) — a warm kitchen/restaurant HDR
   // hosted on object storage gives the most realistic result; the literal

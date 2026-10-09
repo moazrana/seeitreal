@@ -56,6 +56,8 @@ describe('TripoGenerationService', () => {
       update: jest.Mock;
       findMany: jest.Mock;
     };
+    modelGeneration: { count: jest.Mock; create: jest.Mock };
+    $transaction: jest.Mock;
   };
   let restaurants: { assertOwnership: jest.Mock };
   let tripoClient: {
@@ -81,6 +83,11 @@ describe('TripoGenerationService', () => {
         update: jest.fn(),
         findMany: jest.fn(),
       },
+      modelGeneration: {
+        count: jest.fn().mockResolvedValue(0),
+        create: jest.fn().mockResolvedValue({ id: 1 }),
+      },
+      $transaction: jest.fn((ops: Promise<unknown>[]) => Promise.all(ops)),
     };
     restaurants = { assertOwnership: jest.fn().mockResolvedValue(restaurant) };
     tripoClient = {
@@ -283,6 +290,48 @@ describe('TripoGenerationService', () => {
         ],
         expect.objectContaining({ texture: true, pbr: false }),
       );
+    });
+
+    it('logs every submitted job with its task id and user', async () => {
+      prisma.menuItem.findUnique.mockResolvedValueOnce({
+        id: 1,
+        restaurantId: restaurant.id,
+        photos: [{ id: 1, sortOrder: 0, url: 'http://example.com/photo.jpg' }],
+        arStatus: 'pending',
+      });
+      tripoClient.submitImageToModel.mockResolvedValueOnce({
+        taskId: 'task_1',
+      });
+      prisma.menuItem.update.mockResolvedValueOnce({ id: 1 });
+
+      await service.triggerGeneration(restaurant.id, 1, owner);
+
+      expect(prisma.modelGeneration.create).toHaveBeenCalledWith({
+        data: {
+          restaurantId: restaurant.id,
+          userId: owner.userId,
+          menuItemId: 1,
+          tripoTaskId: 'task_1',
+        },
+      });
+    });
+
+    it('refuses with 429, before calling Tripo, once the daily cap is reached', async () => {
+      prisma.menuItem.findUnique.mockResolvedValueOnce({
+        id: 1,
+        restaurantId: restaurant.id,
+        photos: [{ id: 1, sortOrder: 0, url: 'http://example.com/photo.jpg' }],
+        arStatus: 'pending',
+      });
+      prisma.modelGeneration.count.mockResolvedValueOnce(20);
+
+      await expect(
+        service.triggerGeneration(restaurant.id, 1, owner),
+      ).rejects.toMatchObject({ status: 429 });
+      expect(tripoClient.submitImageToModel).not.toHaveBeenCalled();
+      expect(prisma.modelGeneration.count).toHaveBeenCalledWith({
+        where: { userId: owner.userId, createdAt: { gte: expect.any(Date) } },
+      });
     });
 
     it('defaults to the faster standard texture quality', async () => {

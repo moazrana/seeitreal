@@ -85,6 +85,24 @@ describe('Signup -> restaurant -> menu item (e2e)', () => {
       .expect(200);
 
     expect(listRes.body).toHaveLength(1);
+
+    // Photo/logo URLs come only from the upload endpoints, never the client.
+    await request(app.getHttpServer())
+      .post(`/api/restaurants/${restaurantSlug}/items`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({
+        name: 'Remote Photo Dish',
+        categoryId,
+        photoUrl: 'https://attacker.example/x.jpg',
+      })
+      .expect(400);
+    await request(app.getHttpServer())
+      .patch(
+        `/api/restaurants/${restaurantSlug}/items/${itemRes.body.publicSlug as string}`,
+      )
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({ photoUrl: 'https://attacker.example/x.jpg' })
+      .expect(400);
   });
 
   it("never lets one owner read another owner's restaurant", async () => {

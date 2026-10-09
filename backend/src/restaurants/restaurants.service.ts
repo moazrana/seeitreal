@@ -36,7 +36,6 @@ export class RestaurantsService {
         ownerUserId: user.userId,
         name: dto.name,
         slug: dto.slug,
-        logoUrl: dto.logoUrl,
         address: dto.address,
       },
     });

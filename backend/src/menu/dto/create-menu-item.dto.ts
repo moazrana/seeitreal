@@ -2,7 +2,6 @@ import {
   IsInt,
   IsOptional,
   IsString,
-  IsUrl,
   Max,
   MaxLength,
   Min,
@@ -28,13 +27,10 @@ export class CreateMenuItemDto {
   @MaxLength(2000)
   description?: string;
 
-  // Photo upload pipeline (with magic-byte verification, EXIF stripping,
-  // etc. per spec §7.5) lands in build-order step 2; for now items are
-  // created with a photoUrl that must already point at approved storage.
-  @IsOptional()
-  @IsUrl()
-  @MaxLength(2048)
-  photoUrl?: string;
+  // No photoUrl here: photos only arrive through the upload endpoint
+  // (spec §7.5), which sets the URL to our own storage. Accepting a URL
+  // from the client would let any address be shown on the dish page and
+  // sent to Tripo for generation.
 
   // Real-world dish dimensions in millimetres (TASK-real-world-ar-sizing.md
   // §1-2), entered by owners in inches. All optional — a model generated

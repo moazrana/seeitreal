@@ -20,7 +20,9 @@ describe('MenuItemsService', () => {
       findFirst: jest.Mock;
       update: jest.Mock;
       delete: jest.Mock;
+      count: jest.Mock;
     };
+    subscription: { findFirst: jest.Mock };
     menuItemPhoto: {
       createMany: jest.Mock;
       delete: jest.Mock;
@@ -44,7 +46,10 @@ describe('MenuItemsService', () => {
         findFirst: jest.fn().mockResolvedValue(null),
         update: jest.fn(),
         delete: jest.fn(),
+        count: jest.fn().mockResolvedValue(0),
       },
+      // No subscription (never checked out) by default: no item limit.
+      subscription: { findFirst: jest.fn().mockResolvedValue(null) },
       menuItemPhoto: {
         createMany: jest.fn(),
         delete: jest.fn(),
@@ -92,6 +97,39 @@ describe('MenuItemsService', () => {
         }),
       }),
     );
+  });
+
+  it("refuses a new dish once the restaurant's plan item limit is reached", async () => {
+    prisma.menuCategory.findUnique.mockResolvedValueOnce({
+      id: 3,
+      restaurantId: restaurant.id,
+    });
+    prisma.subscription.findFirst.mockResolvedValueOnce({
+      package: { maxItems: 10, name: 'Starter' },
+    });
+    prisma.menuItem.count.mockResolvedValueOnce(10);
+
+    await expect(
+      service.create(restaurant.id, owner, { name: 'Burger', categoryId: 3 }),
+    ).rejects.toThrow(/Starter plan allows up to 10 dishes/);
+    expect(prisma.menuItem.create).not.toHaveBeenCalled();
+  });
+
+  it('allows unlimited dishes on a plan with no item limit', async () => {
+    prisma.menuCategory.findUnique.mockResolvedValueOnce({
+      id: 3,
+      restaurantId: restaurant.id,
+    });
+    prisma.subscription.findFirst.mockResolvedValueOnce({
+      package: { maxItems: null, name: 'Pro' },
+    });
+    prisma.menuItem.create.mockResolvedValueOnce({ id: 1 });
+
+    await service.create(restaurant.id, owner, {
+      name: 'Burger',
+      categoryId: 3,
+    });
+    expect(prisma.menuItem.create).toHaveBeenCalled();
   });
 
   it('rejects a categoryId that belongs to a different restaurant', async () => {
