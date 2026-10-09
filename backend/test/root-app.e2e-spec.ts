@@ -141,6 +141,72 @@ describe('Root App (e2e)', () => {
       );
   });
 
+  it('never accepts the password-only 2FA challenge token as an admin session', async () => {
+    const email = await seedRootAdmin();
+    const loginRes = await request(app.getHttpServer())
+      .post('/api/root/auth/login')
+      .send({ email, password: 'CorrectHorse123' })
+      .expect(200);
+
+    // Same signing key as a real access token, but it must not get past
+    // the root JWT guard — otherwise the password alone bypasses 2FA.
+    await request(app.getHttpServer())
+      .get('/api/root/qa-queue')
+      .set('Authorization', `Bearer ${loginRes.body.token as string}`)
+      .expect(401);
+  });
+
+  it('makes each 2FA challenge single-use', async () => {
+    const email = await seedRootAdmin();
+    const { secret } = await loginAndEnroll(email);
+
+    const loginRes = await request(app.getHttpServer())
+      .post('/api/root/auth/login')
+      .send({ email, password: 'CorrectHorse123' })
+      .expect(200);
+    const challenge = loginRes.body.token as string;
+    await request(app.getHttpServer())
+      .post('/api/root/auth/totp/verify')
+      .send({ token: challenge, code: authenticator.generate(secret) })
+      .expect(200);
+
+    // Replaying the already-used challenge, even with a valid code, fails.
+    await request(app.getHttpServer())
+      .post('/api/root/auth/totp/verify')
+      .send({ token: challenge, code: authenticator.generate(secret) })
+      .expect(401);
+  });
+
+  it('counts wrong 2FA codes toward lockout and enforces it at the code step', async () => {
+    const email = await seedRootAdmin();
+    const { secret } = await loginAndEnroll(email);
+    const loginRes = await request(app.getHttpServer())
+      .post('/api/root/auth/login')
+      .send({ email, password: 'CorrectHorse123' })
+      .expect(200);
+
+    // One short of the limit, so a single wrong code (rather than five,
+    // which the per-route throttle would cut off first) trips the lock.
+    await prisma.rootAdminUser.update({
+      where: { email },
+      data: { failedLoginAttempts: 4 },
+    });
+    await request(app.getHttpServer())
+      .post('/api/root/auth/totp/verify')
+      .send({ token: loginRes.body.token, code: '000000' })
+      .expect(401);
+
+    // Locked: the still-unexpired challenge plus a correct code is refused.
+    const lockedRes = await request(app.getHttpServer())
+      .post('/api/root/auth/totp/verify')
+      .send({
+        token: loginRes.body.token,
+        code: authenticator.generate(secret),
+      })
+      .expect(401);
+    expect(lockedRes.body.message).toMatch(/locked/i);
+  });
+
   it('lets an enrolled admin suspend a restaurant, blocking both the owner and the public page, then reactivate', async () => {
     const rootEmail = await seedRootAdmin();
     const { accessToken: rootAccess } = await loginAndEnroll(rootEmail);

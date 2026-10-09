@@ -13,6 +13,7 @@ type MockPrisma = {
   rootAdminUser: {
     findUnique: jest.Mock;
     update: jest.Mock;
+    updateMany: jest.Mock;
   };
   rootRefreshToken: {
     create: jest.Mock;
@@ -24,7 +25,11 @@ type MockPrisma = {
 
 function buildPrismaMock(): MockPrisma {
   return {
-    rootAdminUser: { findUnique: jest.fn(), update: jest.fn() },
+    rootAdminUser: {
+      findUnique: jest.fn(),
+      update: jest.fn().mockResolvedValue({ failedLoginAttempts: 1 }),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
     rootRefreshToken: {
       create: jest.fn(),
       findFirst: jest.fn(),
@@ -62,7 +67,18 @@ describe('RootAuthService', () => {
     backupCodesHashed: null as string | null,
     failedLoginAttempts: 0,
     lockedUntil: null as Date | null,
+    totpChallengeJti: 'current-jti' as string | null,
   };
+
+  const challenge = (
+    purpose: 'totp_setup' | 'totp_login',
+    jti = 'current-jti',
+  ) => ({
+    sub: 1,
+    purpose,
+    typ: 'totp_challenge',
+    jti,
+  });
 
   beforeAll(async () => {
     realPasswordHash = await argon2.hash('CorrectHorse123', {
@@ -157,7 +173,7 @@ describe('RootAuthService', () => {
       expect(prisma.rootAdminUser.update).toHaveBeenCalledWith(
         expect.objectContaining({
           where: { id: baseAdmin.id },
-          data: expect.objectContaining({ failedLoginAttempts: 1 }),
+          data: { failedLoginAttempts: { increment: 1 } },
         }),
       );
       expect(audit.log).toHaveBeenCalledWith(
@@ -245,7 +261,7 @@ describe('RootAuthService', () => {
 
   describe('verifyTotpSetup', () => {
     it('activates TOTP, issues backup codes, and returns a session on a valid code', async () => {
-      jwt.verifyAsync.mockResolvedValueOnce({ sub: 1, purpose: 'totp_setup' });
+      jwt.verifyAsync.mockResolvedValueOnce(challenge('totp_setup'));
       prisma.rootAdminUser.findUnique.mockResolvedValueOnce({
         ...baseAdmin,
         totpSecretEncrypted: 'encrypted-pending',
@@ -264,6 +280,8 @@ describe('RootAuthService', () => {
           data: {
             totpEnabled: true,
             backupCodesHashed: '["hashed1","hashed2"]',
+            failedLoginAttempts: 0,
+            lockedUntil: null,
           },
         }),
       );
@@ -278,7 +296,7 @@ describe('RootAuthService', () => {
     });
 
     it('rejects a challenge token issued for the wrong purpose', async () => {
-      jwt.verifyAsync.mockResolvedValueOnce({ sub: 1, purpose: 'totp_login' });
+      jwt.verifyAsync.mockResolvedValueOnce(challenge('totp_login'));
 
       await expect(
         service.verifyTotpSetup(
@@ -289,7 +307,7 @@ describe('RootAuthService', () => {
     });
 
     it('rejects an invalid code without activating TOTP', async () => {
-      jwt.verifyAsync.mockResolvedValueOnce({ sub: 1, purpose: 'totp_setup' });
+      jwt.verifyAsync.mockResolvedValueOnce(challenge('totp_setup'));
       prisma.rootAdminUser.findUnique.mockResolvedValueOnce({
         ...baseAdmin,
         totpSecretEncrypted: 'encrypted-pending',
@@ -302,13 +320,21 @@ describe('RootAuthService', () => {
           undefined,
         ),
       ).rejects.toBeInstanceOf(UnauthorizedException);
-      expect(prisma.rootAdminUser.update).not.toHaveBeenCalled();
+      // Counted toward lockout, but TOTP is not activated and the
+      // challenge is not consumed.
+      expect(prisma.rootAdminUser.update).toHaveBeenCalledTimes(1);
+      expect(prisma.rootAdminUser.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: { failedLoginAttempts: { increment: 1 } },
+        }),
+      );
+      expect(prisma.rootAdminUser.updateMany).not.toHaveBeenCalled();
     });
   });
 
   describe('verifyTotp', () => {
     it('issues a session on a valid TOTP code', async () => {
-      jwt.verifyAsync.mockResolvedValueOnce({ sub: 1, purpose: 'totp_login' });
+      jwt.verifyAsync.mockResolvedValueOnce(challenge('totp_login'));
       prisma.rootAdminUser.findUnique.mockResolvedValueOnce({
         ...baseAdmin,
         totpEnabled: true,
@@ -333,7 +359,7 @@ describe('RootAuthService', () => {
     });
 
     it('falls back to a backup code and consumes it', async () => {
-      jwt.verifyAsync.mockResolvedValueOnce({ sub: 1, purpose: 'totp_login' });
+      jwt.verifyAsync.mockResolvedValueOnce(challenge('totp_login'));
       prisma.rootAdminUser.findUnique.mockResolvedValueOnce({
         ...baseAdmin,
         totpEnabled: true,
@@ -368,7 +394,7 @@ describe('RootAuthService', () => {
     });
 
     it('rejects an invalid code and registers a failed attempt', async () => {
-      jwt.verifyAsync.mockResolvedValueOnce({ sub: 1, purpose: 'totp_login' });
+      jwt.verifyAsync.mockResolvedValueOnce(challenge('totp_login'));
       prisma.rootAdminUser.findUnique.mockResolvedValueOnce({
         ...baseAdmin,
         totpEnabled: true,
@@ -388,15 +414,112 @@ describe('RootAuthService', () => {
       ).rejects.toBeInstanceOf(UnauthorizedException);
       expect(prisma.rootAdminUser.update).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: expect.objectContaining({ failedLoginAttempts: 1 }),
+          data: { failedLoginAttempts: { increment: 1 } },
         }),
       );
+    });
+
+    it('locks the account once wrong codes reach the limit', async () => {
+      jwt.verifyAsync.mockResolvedValueOnce(challenge('totp_login'));
+      prisma.rootAdminUser.findUnique.mockResolvedValueOnce({
+        ...baseAdmin,
+        totpEnabled: true,
+        totpSecretEncrypted: 'encrypted-secret',
+        failedLoginAttempts: 4,
+      });
+      prisma.rootAdminUser.update.mockResolvedValueOnce({
+        failedLoginAttempts: 5,
+      });
+
+      await expect(
+        service.verifyTotp(
+          { token: 'challenge-token', code: '000000' },
+          undefined,
+        ),
+      ).rejects.toBeInstanceOf(UnauthorizedException);
+      expect(prisma.rootAdminUser.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: { lockedUntil: expect.any(Date) },
+        }),
+      );
+    });
+
+    it('refuses even a correct code while the account is locked', async () => {
+      jwt.verifyAsync.mockResolvedValueOnce(challenge('totp_login'));
+      prisma.rootAdminUser.findUnique.mockResolvedValueOnce({
+        ...baseAdmin,
+        totpEnabled: true,
+        totpSecretEncrypted: 'encrypted-secret',
+        lockedUntil: new Date(Date.now() + 60_000),
+      });
+      totp.verifyCode.mockReturnValue(true);
+
+      await expect(
+        service.verifyTotp(
+          { token: 'challenge-token', code: '123456' },
+          undefined,
+        ),
+      ).rejects.toThrow(/locked/i);
+      expect(jwt.signAsync).not.toHaveBeenCalled();
+    });
+
+    it("rejects a challenge that is not the admin's current one", async () => {
+      jwt.verifyAsync.mockResolvedValueOnce(challenge('totp_login', 'old-jti'));
+      prisma.rootAdminUser.findUnique.mockResolvedValueOnce({
+        ...baseAdmin,
+        totpEnabled: true,
+        totpSecretEncrypted: 'encrypted-secret',
+      });
+      totp.verifyCode.mockReturnValue(true);
+
+      await expect(
+        service.verifyTotp(
+          { token: 'challenge-token', code: '123456' },
+          undefined,
+        ),
+      ).rejects.toBeInstanceOf(UnauthorizedException);
+      expect(jwt.signAsync).not.toHaveBeenCalled();
+    });
+
+    it('issues no session when a concurrent request already used the challenge', async () => {
+      jwt.verifyAsync.mockResolvedValueOnce(challenge('totp_login'));
+      prisma.rootAdminUser.findUnique.mockResolvedValueOnce({
+        ...baseAdmin,
+        totpEnabled: true,
+        totpSecretEncrypted: 'encrypted-secret',
+      });
+      totp.verifyCode.mockReturnValueOnce(true);
+      prisma.rootAdminUser.updateMany.mockResolvedValueOnce({ count: 0 });
+
+      await expect(
+        service.verifyTotp(
+          { token: 'challenge-token', code: '123456' },
+          undefined,
+        ),
+      ).rejects.toBeInstanceOf(UnauthorizedException);
+      expect(jwt.signAsync).not.toHaveBeenCalled();
+    });
+
+    it('rejects a token that is not a 2FA challenge (e.g. an access token)', async () => {
+      jwt.verifyAsync.mockResolvedValueOnce({
+        sub: 1,
+        email,
+        role: 'superadmin',
+        typ: 'access',
+      });
+
+      await expect(
+        service.verifyTotp(
+          { token: 'access-token', code: '123456' },
+          undefined,
+        ),
+      ).rejects.toBeInstanceOf(UnauthorizedException);
     });
   });
 
   describe('refresh', () => {
     it('rotates the presented token and issues a new session', async () => {
-      jwt.verifyAsync.mockResolvedValueOnce({ sub: 1 });
+      jwt.verifyAsync.mockResolvedValueOnce({ sub: 1, typ: 'refresh' });
       prisma.rootRefreshToken.findFirst.mockResolvedValueOnce({
         id: 5,
         expiresAt: new Date(Date.now() + 60_000),
@@ -416,7 +539,7 @@ describe('RootAuthService', () => {
     });
 
     it('rejects an expired stored token', async () => {
-      jwt.verifyAsync.mockResolvedValueOnce({ sub: 1 });
+      jwt.verifyAsync.mockResolvedValueOnce({ sub: 1, typ: 'refresh' });
       prisma.rootRefreshToken.findFirst.mockResolvedValueOnce({
         id: 5,
         expiresAt: new Date(Date.now() - 60_000),
@@ -426,6 +549,34 @@ describe('RootAuthService', () => {
         UnauthorizedException,
       );
     });
+  });
+
+  it('signs access tokens for the access audience and challenges for a different one', async () => {
+    jwt.verifyAsync.mockResolvedValueOnce({ sub: 1, typ: 'refresh' });
+    prisma.rootRefreshToken.findFirst.mockResolvedValueOnce({
+      id: 5,
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    prisma.rootAdminUser.findUnique.mockResolvedValueOnce(baseAdmin);
+    await service.refresh('raw-refresh-token');
+    expect(jwt.signAsync).toHaveBeenCalledWith(
+      expect.objectContaining({ typ: 'access' }),
+      expect.objectContaining({ audience: 'root-access' }),
+    );
+
+    prisma.rootAdminUser.findUnique.mockResolvedValueOnce({
+      ...baseAdmin,
+      passwordHash: realPasswordHash,
+      totpEnabled: true,
+    });
+    await service.login({ email, password: 'CorrectHorse123' }, undefined);
+    expect(jwt.signAsync).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        typ: 'totp_challenge',
+        jti: expect.any(String),
+      }),
+      expect.objectContaining({ audience: 'root-totp-challenge' }),
+    );
   });
 
   describe('logout', () => {

@@ -651,6 +651,10 @@ model RootAdminUser {
   // Auth hardening (spec §7.3, reused here), same shape as User.
   failedLoginAttempts Int           @default(0) @map("failed_login_attempts")
   lockedUntil         DateTime?     @map("locked_until")
+  // jti of the one 2FA challenge token currently allowed for this admin.
+  // Each password step overwrites it and a successful code clears it, so a
+  // challenge token is single-use and an older one stops working.
+  totpChallengeJti    String?       @map("totp_challenge_jti") @db.VarChar(64)
   createdAt           DateTime      @default(now()) @map("created_at")
   updatedAt           DateTime      @updatedAt @map("updated_at")
 
