@@ -11,14 +11,8 @@ import {
 import { Injectable, Logger } from '@nestjs/common';
 import type { MeshoptSimplifier as Simplifier } from 'meshoptimizer';
 import sharp from 'sharp';
+import { TARGET_TRIANGLES } from './model-budget';
 
-/**
- * Triangle budget for a dish model. Tripo returns ~1.4M triangles (~40MB
- * of geometry) — far beyond what a phone needs for a plate on a table, and
- * the main reason models loaded slowly, especially on mid-range Android.
- * ~150k keeps food surfaces smooth at AR viewing distance.
- */
-export const TARGET_TRIANGLES = 150_000;
 /** Longest texture edge. 4096² textures cost ~64MB of GPU memory each. */
 export const MAX_TEXTURE_EDGE_PX = 2048;
 // Max geometric deviation simplify() may introduce, relative to the mesh

@@ -9,6 +9,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { RestaurantsService } from '../restaurants/restaurants.service';
 import { StorageService } from '../storage/storage.service';
 import type { AuthenticatedUser } from '../auth/types/authenticated-user.interface';
+import { ModelMaterialService } from './model-material.service';
+import { TARGET_TRIANGLES } from './model-budget';
 import { ModelOptimizationService } from './model-optimization.service';
 import { ModelScalingService } from './model-scaling.service';
 import { TripoClientService } from './tripo-client.service';
@@ -39,6 +41,7 @@ export class TripoGenerationService {
     private readonly usdz: UsdzConversionService,
     private readonly modelScaling: ModelScalingService,
     private readonly modelOptimization: ModelOptimizationService,
+    private readonly modelMaterial: ModelMaterialService,
     private readonly config: ConfigService,
   ) {}
 
@@ -80,12 +83,16 @@ export class TripoGenerationService {
     const callbackUrl = this.buildCallbackUrl();
     const generationOptions = {
       texture: true,
-      pbr: true,
+      // Off by default: PBR maps lengthen every job, and their metallic
+      // channel is what made dishes look like chrome. Food needs only the
+      // base-colour texture. TRIPO_PBR=true turns it back on.
+      pbr: this.config.get<string>('TRIPO_PBR') === 'true',
       // 'standard' by default — 'detailed' texturing noticeably lengthens
       // every job; set TRIPO_TEXTURE_QUALITY=detailed to trade speed back
       // for texture sharpness.
       textureQuality:
         this.config.get<string>('TRIPO_TEXTURE_QUALITY') ?? 'standard',
+      faceLimit: this.faceLimit(),
       callbackUrl,
     };
     // Routing (documents/3d-model-enhancement.md §1): a single photo uses
@@ -201,6 +208,12 @@ export class TripoGenerationService {
       glbBuffer,
       `Tripo task ${result.taskId}`,
     );
+    // After optimizing (a smaller file to rewrite), before the GLB is
+    // stored and converted, so neither format renders the dish as chrome.
+    glbBuffer = await this.modelMaterial.makeNonMetallic(
+      glbBuffer,
+      `Tripo task ${result.taskId}`,
+    );
 
     // Uploading the GLB and converting it to USDZ are independent — run
     // them together rather than back to back.
@@ -305,6 +318,15 @@ export class TripoGenerationService {
       }
     }
     return pending.length;
+  }
+
+  /** TRIPO_FACE_LIMIT, defaulting to our own optimization budget; 0
+   * leaves the face count to Tripo. */
+  private faceLimit(): number | undefined {
+    const raw = this.config.get<string>('TRIPO_FACE_LIMIT');
+    const limit =
+      raw === undefined || raw === '' ? TARGET_TRIANGLES : Number(raw);
+    return limit > 0 ? limit : undefined;
   }
 
   private buildCallbackUrl(): string {
