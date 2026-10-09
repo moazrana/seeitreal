@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { PreviewLinkService } from '../../preview-link/preview-link.service';
 import { RootAuditService } from '../audit/root-audit.service';
 import type { AuthenticatedRootAdmin } from '../types/authenticated-root-admin.interface';
 
@@ -20,6 +21,7 @@ export class RootQaService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: RootAuditService,
+    private readonly previewLinks: PreviewLinkService,
   ) {}
 
   qaQueue() {
@@ -71,6 +73,9 @@ export class RootQaService {
         // First publish issues the dish's QR code; re-approvals after a
         // regeneration keep the original timestamp.
         qrIssuedAt: item.qrIssuedAt ?? new Date(),
+        // A decided item no longer needs its QA preview link.
+        previewLinkNonce: null,
+        previewLinkExpiresAt: null,
       },
     });
     await this.audit.log(
@@ -82,6 +87,29 @@ export class RootQaService {
       ip,
     );
     return updated;
+  }
+
+  /** The item's live preview link (url/expiresAt), or nulls if none. */
+  getPreviewLink(itemId: number) {
+    return this.previewLinks.getLive(itemId);
+  }
+
+  /** Creates a 24h preview link for a QA item; 409 while one is live. */
+  async createPreviewLink(
+    itemId: number,
+    admin: AuthenticatedRootAdmin,
+    ip: string | undefined,
+  ) {
+    const link = await this.previewLinks.create(itemId);
+    await this.audit.log(
+      admin.adminId,
+      'create_preview_link',
+      'menu_item',
+      itemId,
+      undefined,
+      ip,
+    );
+    return link;
   }
 
   async reject(
@@ -113,6 +141,8 @@ export class RootQaService {
         modelUsdzUrl: null,
         previewImageUrl: null,
         tripoTaskId: null,
+        previewLinkNonce: null,
+        previewLinkExpiresAt: null,
       },
     });
     await this.audit.log(

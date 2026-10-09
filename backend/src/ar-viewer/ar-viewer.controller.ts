@@ -4,6 +4,7 @@ import {
   Get,
   NotFoundException,
   Param,
+  Query,
   Req,
   Res,
 } from '@nestjs/common';
@@ -43,6 +44,7 @@ export class ArViewerController {
     @Param('slug') slug: string,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
+    @Query('preview') preview?: unknown,
   ) {
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     // model-viewer needs blob:/data: for WebGL texture decoding and (on
@@ -71,6 +73,25 @@ export class ArViewerController {
         'child-src blob:',
       ].join('; '),
     );
+
+    // Admin QA preview link. Any invalid, expired or stale token just falls
+    // through to the normal public page, revealing nothing about the item.
+    if (typeof preview === 'string') {
+      const previewItem = await this.arViewer.findItemForPreview(slug, preview);
+      if (previewItem) {
+        // The token is in the URL: never cache it, and never send it on to
+        // the storage/HDR origins as a Referer.
+        res.setHeader('Cache-Control', 'no-store');
+        res.setHeader('Referrer-Policy', 'no-referrer');
+        // Not a diner scan, so no analytics event.
+        return renderItemPage(
+          previewItem,
+          previewItem.restaurant.name,
+          this.environmentImages(),
+          { preview: true },
+        );
+      }
+    }
 
     try {
       const item = await this.arViewer.findItemByPublicSlug(slug);

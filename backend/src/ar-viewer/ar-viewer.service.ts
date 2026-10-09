@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { PreviewLinkService } from '../preview-link/preview-link.service';
 import { SubscriptionLifecycleService } from '../payments/subscription-lifecycle.service';
 
 /**
@@ -22,7 +23,22 @@ export class ArViewerService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly lifecycle: SubscriptionLifecycleService,
+    private readonly previewLinks: PreviewLinkService,
   ) {}
+
+  /** A QA item opened with its live admin preview token, or null — the
+   * caller then serves the normal public page. Restaurant suspension and
+   * subscription gates don't apply: only an admin holds this link. */
+  async findItemForPreview(slug: string, token: string) {
+    const item = await this.prisma.menuItem.findUnique({
+      where: { publicSlug: slug },
+      include: { restaurant: { select: { name: true } } },
+    });
+    if (!item || !this.previewLinks.isValidToken(item, token)) {
+      return null;
+    }
+    return item;
+  }
 
   async findItemByPublicSlug(slug: string) {
     const item = await this.prisma.menuItem.findUnique({
