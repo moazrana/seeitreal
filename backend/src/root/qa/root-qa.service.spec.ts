@@ -2,6 +2,7 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { RootAdminRole } from '@ar-menu/shared';
 import { PrismaService } from '../../prisma/prisma.service';
+import { PreviewLinkService } from '../../preview-link/preview-link.service';
 import { RootAuditService } from '../audit/root-audit.service';
 import { RootQaService } from './root-qa.service';
 
@@ -11,6 +12,7 @@ describe('RootQaService', () => {
     menuItem: { findUnique: jest.Mock; update: jest.Mock; findMany: jest.Mock };
   };
   let audit: { log: jest.Mock };
+  let previewLinks: { getLive: jest.Mock; create: jest.Mock };
 
   const admin = {
     adminId: 99,
@@ -27,12 +29,14 @@ describe('RootQaService', () => {
       },
     };
     audit = { log: jest.fn() };
+    previewLinks = { getLive: jest.fn(), create: jest.fn() };
 
     const moduleRef = await Test.createTestingModule({
       providers: [
         RootQaService,
         { provide: PrismaService, useValue: prisma },
         { provide: RootAuditService, useValue: audit },
+        { provide: PreviewLinkService, useValue: previewLinks },
       ],
     }).compile();
 
@@ -98,6 +102,8 @@ describe('RootQaService', () => {
           arStatus: 'live',
           qaNote: null,
           qrIssuedAt: expect.any(Date) as Date,
+          previewLinkNonce: null,
+          previewLinkExpiresAt: null,
         },
       });
       expect(audit.log).toHaveBeenCalledWith(
@@ -162,6 +168,8 @@ describe('RootQaService', () => {
           modelUsdzUrl: null,
           previewImageUrl: null,
           tripoTaskId: null,
+          previewLinkNonce: null,
+          previewLinkExpiresAt: null,
         },
       });
       expect(audit.log).toHaveBeenCalledWith(
@@ -172,6 +180,37 @@ describe('RootQaService', () => {
         'Model looks distorted',
         '1.2.3.4',
       );
+    });
+  });
+
+  describe('preview links', () => {
+    it('creates a link and audit-logs who created it', async () => {
+      const link = {
+        url: 'https://api.example/api/m/dish?preview=t',
+        expiresAt: '2026-10-10T09:00:00.000Z',
+      };
+      previewLinks.create.mockResolvedValueOnce(link);
+
+      await expect(
+        service.createPreviewLink(7, admin, '1.2.3.4'),
+      ).resolves.toBe(link);
+      expect(audit.log).toHaveBeenCalledWith(
+        admin.adminId,
+        'create_preview_link',
+        'menu_item',
+        7,
+        undefined,
+        '1.2.3.4',
+      );
+    });
+
+    it('does not audit-log when creation is refused', async () => {
+      previewLinks.create.mockRejectedValueOnce(new Error('still live'));
+
+      await expect(
+        service.createPreviewLink(7, admin, undefined),
+      ).rejects.toThrow();
+      expect(audit.log).not.toHaveBeenCalled();
     });
   });
 });

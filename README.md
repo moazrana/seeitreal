@@ -412,5 +412,7 @@ its listed auth, and fully separate from the customer JWT above (`root-jwt` Pass
 | GET    | `/root/qa-queue`                               | root JWT                | any role                                                   |
 | POST   | `/root/items/:id/approve`                      | root JWT                | requires both GLB and USDZ present (dimensions optional)   |
 | POST   | `/root/items/:id/reject`                       | root JWT                | body: `{ note }`                                           |
+| GET    | `/root/items/:id/preview-link`                 | root JWT                | QA items only: live link `{ url, expiresAt }`, or nulls    |
+| POST   | `/root/items/:id/preview-link`                 | root JWT                | creates a 24h link (201); 409 while one is live            |
 
 Full OpenAPI/Swagger docs are not wired up yet — tracked as follow-up work.

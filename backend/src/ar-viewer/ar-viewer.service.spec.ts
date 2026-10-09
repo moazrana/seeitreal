@@ -2,6 +2,7 @@ import { NotFoundException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { PrismaService } from '../prisma/prisma.service';
 import { SubscriptionLifecycleService } from '../payments/subscription-lifecycle.service';
+import { PreviewLinkService } from '../preview-link/preview-link.service';
 import { ArViewerService, SubscriptionExpiredError } from './ar-viewer.service';
 
 describe('ArViewerService', () => {
@@ -17,6 +18,7 @@ describe('ArViewerService', () => {
         ArViewerService,
         { provide: PrismaService, useValue: prisma },
         { provide: SubscriptionLifecycleService, useValue: lifecycle },
+        { provide: PreviewLinkService, useValue: { isValidToken: jest.fn() } },
       ],
     }).compile();
     service = moduleRef.get(ArViewerService);

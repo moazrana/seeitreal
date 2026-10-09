@@ -276,4 +276,102 @@ describe('Root App (e2e)', () => {
     );
     expect(rejectRes.body.modelGlbUrl).toBeNull();
   });
+
+  it('gives admins one live 24-hour preview link per QA dish that opens the model in the public viewer', async () => {
+    const rootEmail = await seedRootAdmin();
+    const { accessToken: rootAccess } = await loginAndEnroll(rootEmail);
+    const { accessToken: ownerAccess, restaurantSlug } = await signupAndLogin();
+    const categoryId = await createCuisineType(
+      app.getHttpServer(),
+      ownerAccess,
+      restaurantSlug,
+    );
+    const itemRes = await request(app.getHttpServer())
+      .post(`/api/restaurants/${restaurantSlug}/items`)
+      .set('Authorization', `Bearer ${ownerAccess}`)
+      .send({ name: 'Preview Dish', categoryId })
+      .expect(201);
+    const itemId = itemRes.body.id as number;
+    const slug = itemRes.body.publicSlug as string;
+    const linkPath = `/api/root/items/${itemId}/preview-link`;
+
+    // Not in QA yet: no links.
+    await request(app.getHttpServer())
+      .post(linkPath)
+      .set('Authorization', `Bearer ${rootAccess}`)
+      .expect(400);
+
+    await prisma.menuItem.update({
+      where: { id: itemId },
+      data: {
+        arStatus: 'qa',
+        modelGlbUrl: 'http://localhost/api/uploads/model-glb/x.glb',
+      },
+    });
+
+    // Admin-only: an owner token can't create one.
+    await request(app.getHttpServer())
+      .post(linkPath)
+      .set('Authorization', `Bearer ${ownerAccess}`)
+      .expect(401);
+
+    await request(app.getHttpServer())
+      .get(linkPath)
+      .set('Authorization', `Bearer ${rootAccess}`)
+      .expect(200, { url: null, expiresAt: null });
+
+    const created = await request(app.getHttpServer())
+      .post(linkPath)
+      .set('Authorization', `Bearer ${rootAccess}`)
+      .expect(201);
+    const { url, expiresAt } = created.body as {
+      url: string;
+      expiresAt: string;
+    };
+    const hoursLeft = (Date.parse(expiresAt) - Date.now()) / 3_600_000;
+    expect(hoursLeft).toBeGreaterThan(23.9);
+
+    // While live: GET returns the same link and a second POST is refused.
+    await request(app.getHttpServer())
+      .get(linkPath)
+      .set('Authorization', `Bearer ${rootAccess}`)
+      .expect(200, { url, expiresAt });
+    await request(app.getHttpServer())
+      .post(linkPath)
+      .set('Authorization', `Bearer ${rootAccess}`)
+      .expect(409);
+
+    // The link opens the not-yet-live model; without it the page doesn't.
+    const { pathname, search } = new URL(url);
+    expect(pathname).toBe(`/api/m/${slug}`);
+    const previewPage = await request(app.getHttpServer())
+      .get(`${pathname}${search}`)
+      .expect(200);
+    expect(previewPage.text).toContain('<model-viewer');
+    expect(previewPage.text).toContain('Admin preview');
+    expect(previewPage.headers['cache-control']).toBe('no-store');
+    const publicPage = await request(app.getHttpServer())
+      .get(pathname)
+      .expect(200);
+    expect(publicPage.text).not.toContain('<model-viewer');
+    const forged = await request(app.getHttpServer())
+      .get(`${pathname}?preview=${'A'.repeat(43)}`)
+      .expect(200);
+    expect(forged.text).not.toContain('<model-viewer');
+
+    // After expiry a new link can be created, and the old one stops working.
+    await prisma.menuItem.update({
+      where: { id: itemId },
+      data: { previewLinkExpiresAt: new Date(Date.now() - 1000) },
+    });
+    const renewed = await request(app.getHttpServer())
+      .post(linkPath)
+      .set('Authorization', `Bearer ${rootAccess}`)
+      .expect(201);
+    expect(renewed.body.url).not.toBe(url);
+    const stale = await request(app.getHttpServer())
+      .get(`${pathname}${search}`)
+      .expect(200);
+    expect(stale.text).not.toContain('<model-viewer');
+  });
 });

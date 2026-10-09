@@ -146,6 +146,10 @@ export function renderItemPage(
   // be configured via AR_ENVIRONMENT_IMAGE_URL / AR_ENVIRONMENT_IMAGE_URL_LIGHT
   // without a code change.
   environmentImages: ViewerEnvironmentImages = DEFAULT_ENVIRONMENT_IMAGES,
+  // Admin QA preview (PreviewLinkService): shows a not-yet-live model, with
+  // a banner, as soon as its GLB exists. The USDZ may be missing at QA
+  // (conversion failed), so iOS AR is offered only when it exists.
+  options: { preview?: boolean } = {},
 ): string {
   const name = escapeHtml(item.name);
   const restaurant = escapeHtml(restaurantName);
@@ -153,14 +157,21 @@ export function renderItemPage(
     ? `<p class="description">${escapeHtml(item.description)}</p>`
     : '';
 
-  const isArReady =
-    item.arStatus === 'live' && item.modelGlbUrl && item.modelUsdzUrl;
+  const isArReady = options.preview
+    ? !!item.modelGlbUrl
+    : item.arStatus === 'live' && !!item.modelGlbUrl && !!item.modelUsdzUrl;
+  const iosSrc = item.modelUsdzUrl
+    ? `ios-src="${escapeHtml(item.modelUsdzUrl)}"`
+    : '';
+  const previewBanner = options.preview
+    ? `<p class="notice">Admin preview — this model is awaiting approval and isn't public yet.</p>`
+    : '';
 
   const media = isArReady
     ? `<script type="module" src="/api/vendor/model-viewer.min.js"></script>
 <model-viewer
   src="${escapeHtml(item.modelGlbUrl!)}"
-  ios-src="${escapeHtml(item.modelUsdzUrl!)}"
+  ${iosSrc}
   ar
   ar-modes="webxr scene-viewer quick-look"
   camera-controls
@@ -191,6 +202,7 @@ ${renderDimensionsCaption(item)}`
 <div class="card">
   <div class="restaurant">${restaurant}</div>
   <h1>${name}</h1>
+  ${previewBanner}
   ${media}
   ${description}
 </div>

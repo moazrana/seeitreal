@@ -278,50 +278,55 @@ model MenuCategory {
 }
 
 model MenuItem {
-  id              Int       @id @default(autoincrement())
-  restaurantId    Int       @map("restaurant_id")
+  id                   Int       @id @default(autoincrement())
+  restaurantId         Int       @map("restaurant_id")
   // Cuisine type — required (every dish belongs to one). RESTRICT on the
   // FK: a cuisine type can't be deleted while dishes still use it.
-  categoryId      Int       @map("category_id")
-  name            String    @db.VarChar(200)
-  description     String?   @db.Text
+  categoryId           Int       @map("category_id")
+  name                 String    @db.VarChar(200)
+  description          String?   @db.Text
   // Denormalized copy of photos[0].url (the "display" photo) — kept so the
   // diner AR viewer and dashboard list can read a single field without an
   // extra join. Source of truth for the *set* of input photos is the
   // `photos` relation below (documents/3d-model-enhancement.md §1).
-  photoUrl        String?   @map("photo_url") @db.VarChar(2048)
+  photoUrl             String?   @map("photo_url") @db.VarChar(2048)
   // AI-rendered preview thumbnail from Tripo's `rendered_image` output
   // (spec §11.2) — separate from the owner's original upload.
-  previewImageUrl String?   @map("preview_image_url") @db.VarChar(2048)
-  modelGlbUrl     String?   @map("model_glb_url") @db.VarChar(2048)
-  modelUsdzUrl    String?   @map("model_usdz_url") @db.VarChar(2048)
+  previewImageUrl      String?   @map("preview_image_url") @db.VarChar(2048)
+  modelGlbUrl          String?   @map("model_glb_url") @db.VarChar(2048)
+  modelUsdzUrl         String?   @map("model_usdz_url") @db.VarChar(2048)
   // Real-world dish dimensions in millimetres, entered by the owner
   // (TASK-real-world-ar-sizing.md). Nullable — an item may be measured
   // after creation — but required before the item can go `live` (see
   // AdminService.approve). Used to uniform-scale the generated GLB to
   // true size before USDZ conversion (spec §11.3 extension).
-  widthMm         Int?      @map("width_mm")
-  heightMm        Int?      @map("height_mm")
-  lengthMm        Int?      @map("length_mm")
-  arStatus        ArStatus  @default(pending) @map("ar_status")
-  publicSlug      String    @unique @map("public_slug") @db.VarChar(200)
+  widthMm              Int?      @map("width_mm")
+  heightMm             Int?      @map("height_mm")
+  lengthMm             Int?      @map("length_mm")
+  arStatus             ArStatus  @default(pending) @map("ar_status")
+  publicSlug           String    @unique @map("public_slug") @db.VarChar(200)
   // Tripo's task_id for the in-flight/last generation job (spec §11.4:
   // "log the task_id for every job"). Used by the poll fallback and to
   // correlate webhook callbacks.
-  tripoTaskId     String?   @map("tripo_task_id") @db.VarChar(255)
+  tripoTaskId          String?   @map("tripo_task_id") @db.VarChar(255)
   // Admin's note when rejecting an item out of the QA queue (spec §10.3).
-  qaNote          String?   @map("qa_note") @db.Text
+  qaNote               String?   @map("qa_note") @db.Text
   // Root App item control (rootApp/ROOT-APP-Implementation-Spec.md §3.3).
   // Only pulls the item's public AR page — the owner keeps full edit
   // access, unlike a suspended restaurant.
-  hiddenByAdmin   Boolean   @default(false) @map("hidden_by_admin")
+  hiddenByAdmin        Boolean   @default(false) @map("hidden_by_admin")
   // When the dish's QR code was first issued — set the first time the item
   // goes live and never cleared. The QR encodes the stable public URL, so
   // once printed it must stay available to the owner even while the model
   // is being regenerated (the viewer shows a "coming soon" notice then).
-  qrIssuedAt      DateTime? @map("qr_issued_at")
-  createdAt       DateTime  @default(now()) @map("created_at")
-  updatedAt       DateTime  @updatedAt @map("updated_at")
+  qrIssuedAt           DateTime? @map("qr_issued_at")
+  // Admin preview link for a model awaiting QA (PreviewLinkService). Only
+  // the random nonce is stored; the link's token is an HMAC over it, so a
+  // database leak can't produce a working link. One live link per item.
+  previewLinkNonce     String?   @map("preview_link_nonce") @db.VarChar(64)
+  previewLinkExpiresAt DateTime? @map("preview_link_expires_at")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
 
   restaurant Restaurant      @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
   category   MenuCategory    @relation(fields: [categoryId], references: [id], onDelete: Restrict)

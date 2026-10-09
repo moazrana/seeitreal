@@ -40,6 +40,21 @@ export class RootQaController {
     return this.qa.approve(id, admin, req.ip);
   }
 
+  // Preview link for opening a QA dish on a phone before approving it.
+  @Get('items/:id/preview-link')
+  getPreviewLink(@Param('id', ParseIntPipe) id: number) {
+    return this.qa.getPreviewLink(id);
+  }
+
+  @Post('items/:id/preview-link')
+  createPreviewLink(
+    @CurrentRootAdmin() admin: AuthenticatedRootAdmin,
+    @Param('id', ParseIntPipe) id: number,
+    @Req() req: Request,
+  ) {
+    return this.qa.createPreviewLink(id, admin, req.ip);
+  }
+
   @HttpCode(HttpStatus.OK)
   @Post('items/:id/reject')
   reject(
