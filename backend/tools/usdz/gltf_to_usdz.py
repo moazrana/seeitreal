@@ -190,16 +190,24 @@ def build_material(stage, mat_path, gltf, gltf_material, texture_files):
         shader.CreateInput('diffuseColor', Sdf.ValueTypeNames.Color3f).Set(Gf.Vec3f(*bcf[:3]))
 
     mr_tex = pbr.get('metallicRoughnessTexture')
+    # glTF: metallic = metallicFactor x texture B. The backend sets the
+    # factor to 0 on every dish (ModelMaterialService), so honor it here
+    # rather than wiring the texture straight in, which made iOS AR Quick
+    # Look render food as chrome.
+    metallic_factor = float(pbr.get('metallicFactor', 1.0))
     if mr_tex:
         # glTF packs roughness in G and metallic in B of the same texture.
         tex = make_texture_node('MetallicRoughnessTex', mr_tex, colorspace='raw')
         tex.CreateOutput('g', Sdf.ValueTypeNames.Float)
-        tex.CreateOutput('b', Sdf.ValueTypeNames.Float)
         shader.CreateInput('roughness', Sdf.ValueTypeNames.Float).ConnectToSource(tex.ConnectableAPI(), 'g')
-        shader.CreateInput('metallic', Sdf.ValueTypeNames.Float).ConnectToSource(tex.ConnectableAPI(), 'b')
+        if metallic_factor == 0.0:
+            shader.CreateInput('metallic', Sdf.ValueTypeNames.Float).Set(0.0)
+        else:
+            tex.CreateOutput('b', Sdf.ValueTypeNames.Float)
+            shader.CreateInput('metallic', Sdf.ValueTypeNames.Float).ConnectToSource(tex.ConnectableAPI(), 'b')
     else:
         shader.CreateInput('roughness', Sdf.ValueTypeNames.Float).Set(float(pbr.get('roughnessFactor', 1.0)))
-        shader.CreateInput('metallic', Sdf.ValueTypeNames.Float).Set(float(pbr.get('metallicFactor', 1.0)))
+        shader.CreateInput('metallic', Sdf.ValueTypeNames.Float).Set(metallic_factor)
 
     normal_tex = gltf_material.get('normalTexture')
     if normal_tex:

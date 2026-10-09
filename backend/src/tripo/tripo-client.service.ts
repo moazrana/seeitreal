@@ -79,6 +79,9 @@ export class TripoClientService {
     if (options.textureQuality) {
       body.texture_quality = options.textureQuality;
     }
+    if (options.faceLimit) {
+      body.face_limit = options.faceLimit;
+    }
     if (options.callbackUrl) {
       body.callback_url = options.callbackUrl;
     }
@@ -176,6 +179,9 @@ export class TripoClientService {
     };
     if (options.textureQuality) {
       body.texture_quality = options.textureQuality;
+    }
+    if (options.faceLimit) {
+      body.face_limit = options.faceLimit;
     }
     if (options.callbackUrl) {
       body.callback_url = options.callbackUrl;

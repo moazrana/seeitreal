@@ -18,6 +18,14 @@ jest.mock('./model-optimization.service', () => ({
 const modelOptimizationModule = require('./model-optimization.service');
 const { ModelOptimizationService } =
   modelOptimizationModule as typeof import('./model-optimization.service');
+// Same reasoning for the material step (gltf-transform).
+jest.mock('./model-material.service', () => ({
+  ModelMaterialService: jest.fn(),
+}));
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const modelMaterialModule = require('./model-material.service');
+const { ModelMaterialService } =
+  modelMaterialModule as typeof import('./model-material.service');
 
 describe('ManualModelUploadService', () => {
   let service: ManualModelUploadService;
@@ -25,6 +33,7 @@ describe('ManualModelUploadService', () => {
   let restaurants: { assertOwnership: jest.Mock };
   let glbUpload: { assertValid: jest.Mock; store: jest.Mock };
   let modelOptimization: { optimizeOrOriginal: jest.Mock };
+  let modelMaterial: { makeNonMetallic: jest.Mock };
   let usdz: { convert: jest.Mock };
   let storage: { putObject: jest.Mock; generateKey: jest.Mock };
 
@@ -41,6 +50,11 @@ describe('ManualModelUploadService', () => {
         key: 'model-glb-manual/x.glb',
         url: 'http://localhost/api/uploads/model-glb-manual/x.glb',
       }),
+    };
+    modelMaterial = {
+      makeNonMetallic: jest
+        .fn()
+        .mockImplementation((buf: Buffer) => Promise.resolve(buf)),
     };
     modelOptimization = {
       optimizeOrOriginal: jest.fn().mockResolvedValue(Buffer.from('optimized')),
@@ -66,6 +80,7 @@ describe('ManualModelUploadService', () => {
         { provide: UsdzConversionService, useValue: usdz },
         { provide: StorageService, useValue: storage },
         { provide: ModelOptimizationService, useValue: modelOptimization },
+        { provide: ModelMaterialService, useValue: modelMaterial },
       ],
     }).compile();
 
@@ -146,6 +161,10 @@ describe('ManualModelUploadService', () => {
     expect(glbUpload.assertValid).toHaveBeenCalledWith(file);
     expect(modelOptimization.optimizeOrOriginal).toHaveBeenCalledWith(
       file.buffer,
+      expect.any(String),
+    );
+    expect(modelMaterial.makeNonMetallic).toHaveBeenCalledWith(
+      Buffer.from('optimized'),
       expect.any(String),
     );
     expect(glbUpload.store).toHaveBeenCalledWith(

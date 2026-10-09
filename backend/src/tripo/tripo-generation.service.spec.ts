@@ -38,6 +38,14 @@ jest.mock('./model-optimization.service', () => ({
 const modelOptimizationModule = require('./model-optimization.service');
 const { ModelOptimizationService } =
   modelOptimizationModule as typeof import('./model-optimization.service');
+// Same reasoning for the material step (gltf-transform).
+jest.mock('./model-material.service', () => ({
+  ModelMaterialService: jest.fn(),
+}));
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const modelMaterialModule = require('./model-material.service');
+const { ModelMaterialService } =
+  modelMaterialModule as typeof import('./model-material.service');
 
 describe('TripoGenerationService', () => {
   let service: TripoGenerationService;
@@ -59,6 +67,7 @@ describe('TripoGenerationService', () => {
   let usdz: { convert: jest.Mock };
   let modelScaling: { scaleToRealSize: jest.Mock };
   let modelOptimization: { optimizeOrOriginal: jest.Mock };
+  let modelMaterial: { makeNonMetallic: jest.Mock };
   let originalFetch: typeof fetch;
 
   const owner = { userId: 1, email: 'owner@example.com', role: UserRole.OWNER };
@@ -95,6 +104,11 @@ describe('TripoGenerationService', () => {
         .fn()
         .mockImplementation((buf: Buffer) => Promise.resolve(buf)),
     };
+    modelMaterial = {
+      makeNonMetallic: jest
+        .fn()
+        .mockImplementation((buf: Buffer) => Promise.resolve(buf)),
+    };
     modelOptimization = {
       optimizeOrOriginal: jest
         .fn()
@@ -111,6 +125,7 @@ describe('TripoGenerationService', () => {
         { provide: UsdzConversionService, useValue: usdz },
         { provide: ModelScalingService, useValue: modelScaling },
         { provide: ModelOptimizationService, useValue: modelOptimization },
+        { provide: ModelMaterialService, useValue: modelMaterial },
         {
           provide: ConfigService,
           useValue: {
@@ -204,7 +219,7 @@ describe('TripoGenerationService', () => {
 
       expect(tripoClient.submitImageToModel).toHaveBeenCalledWith(
         'http://example.com/photo.jpg',
-        expect.objectContaining({ texture: true, pbr: true }),
+        expect.objectContaining({ texture: true, pbr: false }),
       );
       expect(prisma.menuItem.update).toHaveBeenCalledWith({
         where: { id: 1 },
@@ -234,7 +249,7 @@ describe('TripoGenerationService', () => {
       // both are present.
       expect(tripoClient.submitImageToModel).toHaveBeenCalledWith(
         'http://example.com/photo-0.jpg',
-        expect.objectContaining({ texture: true, pbr: true }),
+        expect.objectContaining({ texture: true, pbr: false }),
       );
       expect(tripoClient.submitMultiviewToModel).not.toHaveBeenCalled();
     });
@@ -266,7 +281,7 @@ describe('TripoGenerationService', () => {
           'http://example.com/photo-2.jpg',
           'http://example.com/photo-3.jpg',
         ],
-        expect.objectContaining({ texture: true, pbr: true }),
+        expect.objectContaining({ texture: true, pbr: false }),
       );
     });
 
@@ -288,6 +303,26 @@ describe('TripoGenerationService', () => {
       expect(tripoClient.submitImageToModel).toHaveBeenCalledWith(
         'http://example.com/photo.jpg',
         expect.objectContaining({ textureQuality: 'standard' }),
+      );
+    });
+
+    it('requests no PBR and a 150k face limit by default (faster, never chrome)', async () => {
+      prisma.menuItem.findUnique.mockResolvedValueOnce({
+        id: 1,
+        restaurantId: restaurant.id,
+        photos: [{ id: 1, sortOrder: 0, url: 'http://example.com/photo.jpg' }],
+        arStatus: 'pending',
+      });
+      tripoClient.submitImageToModel.mockResolvedValueOnce({
+        taskId: 'task_1',
+      });
+      prisma.menuItem.update.mockResolvedValueOnce({ id: 1 });
+
+      await service.triggerGeneration(restaurant.id, 1, owner);
+
+      expect(tripoClient.submitImageToModel).toHaveBeenCalledWith(
+        'http://example.com/photo.jpg',
+        expect.objectContaining({ pbr: false, faceLimit: 150_000 }),
       );
     });
   });
@@ -439,6 +474,8 @@ describe('TripoGenerationService', () => {
       const optimized = Buffer.from('optimized');
       modelScaling.scaleToRealSize.mockResolvedValueOnce(scaled);
       modelOptimization.optimizeOrOriginal.mockResolvedValueOnce(optimized);
+      const matte = Buffer.from('matte');
+      modelMaterial.makeNonMetallic.mockResolvedValueOnce(matte);
       usdz.convert.mockResolvedValueOnce(Buffer.from('usdz'));
 
       await service.handleTaskResult({
@@ -457,13 +494,18 @@ describe('TripoGenerationService', () => {
         scaled,
         expect.stringContaining('task_1'),
       );
+      // Metallic is removed after optimizing, and both stored formats get it.
+      expect(modelMaterial.makeNonMetallic).toHaveBeenCalledWith(
+        optimized,
+        expect.stringContaining('task_1'),
+      );
       expect(storage.putObject).toHaveBeenCalledWith(
         expect.objectContaining({
           contentType: 'model/gltf-binary',
-          body: optimized,
+          body: matte,
         }),
       );
-      expect(usdz.convert).toHaveBeenCalledWith(optimized);
+      expect(usdz.convert).toHaveBeenCalledWith(matte);
     });
 
     it('flags the item for QA (not live-but-mis-sized) when scaling fails', async () => {

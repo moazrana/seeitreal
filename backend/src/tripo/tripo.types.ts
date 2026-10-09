@@ -48,6 +48,11 @@ export interface TripoGenerationOptions {
    * hardcoded, so it can be tuned without a code change. Omitted from the
    * request body entirely when unset, rather than guessing a value. */
   textureQuality?: string;
+  /** Upper bound on the generated mesh's face count. Tripo otherwise
+   * returns ~1.4M triangles that we only shrink to ~150k afterwards;
+   * asking for the budget up front cuts generation, download and
+   * optimization time. Omitted from the request when unset. */
+  faceLimit?: number;
   /** Tripo notifies this URL via POST when the task finishes (spec §11.1).
    * We append a shared-secret token as a query param for verification. */
   callbackUrl?: string;

@@ -3,6 +3,7 @@ import {
   IsBoolean,
   IsEmail,
   IsEnum,
+  IsIn,
   IsInt,
   IsOptional,
   IsString,
@@ -150,6 +151,18 @@ class EnvironmentVariables {
   @IsOptional()
   @IsString()
   TRIPO_TEXTURE_QUALITY?: string;
+
+  // 'true' re-enables Tripo PBR materials (slower, and the metallic map is
+  // what made dishes look like chrome). Off when unset.
+  @IsOptional()
+  @IsIn(['true', 'false'])
+  TRIPO_PBR?: string;
+
+  // Max faces Tripo may generate; defaults to the optimizer's 150k budget.
+  // 0 leaves it to Tripo.
+  @IsOptional()
+  @Matches(/^\d+$/)
+  TRIPO_FACE_LIMIT?: string;
 
   // Image-based lighting for the diner AR viewer's <model-viewer>
   // (documents/3d-model-enhancement.md §3) — a warm kitchen/restaurant HDR

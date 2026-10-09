@@ -175,10 +175,11 @@ allow-list, and a global exception filter that never leaks internals to clients.
   account** — no API key was available while building this; the wire format is isolated in
   `TripoClientService` and covered by mocked unit tests. Wire in a real key and do one live
   submit+poll before trusting this in production.
-- GLB→USDZ conversion (mandatory for iOS AR) is a deliberately **unimplemented stub**
-  (`UsdzConversionService`) — see its doc comment for real implementation options. An item can
-  reach `qa` status with only a GLB; the Root App's `RootQaService.approve` refuses to publish
-  it without both files, so this can't silently ship broken AR.
+- GLB→USDZ conversion (mandatory for iOS AR) runs `tools/usdz/gltf_to_usdz.py` through
+  `UsdzConversionService`. It needs the Python USD toolchain installed on the host (default
+  `/opt/usdz-tools`, overridable with `USDZ_PYTHON_BIN` / `USDZ_CONVERTER_SCRIPT`). Without it,
+  items reach `qa` with only a GLB and a "USDZ conversion failed" note, and the Root App's
+  `RootQaService.approve` refuses to publish them, so this can't silently ship broken AR.
 - Model QA (approve/reject) **moved to the Root App** — see below. The old `backend/src/admin/`
   module, its `/api/admin/*` routes, and the customer dashboard's QA queue page are gone.
 - Real-world AR sizing (`documents/TASK-real-world-ar-sizing.md`): `MenuItem` carries optional
@@ -202,6 +203,13 @@ allow-list, and a global exception filter that never leaks internals to clients.
   are resolved through `textures[i].source`. They were previously used as image indices, which
   bound Tripo models' normal map into the metallic slot and rendered every dish as chrome in iOS
   AR Quick Look. Models converted before this fix need regenerating (or re-converting).
+- No chrome on dishes: generation requests no PBR materials by default (`TRIPO_PBR`), and
+  `ModelMaterialService` sets every material's metallic factor to 0 on both Tripo and manually
+  uploaded GLBs, after optimization and before storage and USDZ conversion. The USDZ converter
+  honors a zero metallic factor instead of reading the texture's metallic channel.
+- Faster generation: Tripo is asked for at most `TRIPO_FACE_LIMIT` faces (default 150k, the
+  optimizer's budget) instead of ~1.4M, and for no PBR maps, which shortens Tripo's job and our
+  download and optimization steps.
 
 **3D model realism enhancement** (`documents/3d-model-enhancement.md`) — extends spec §11:
 

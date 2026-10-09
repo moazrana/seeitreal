@@ -9,6 +9,7 @@ import { RestaurantsService } from '../restaurants/restaurants.service';
 import { StorageService } from '../storage/storage.service';
 import { GlbUploadService } from '../uploads/glb-upload.service';
 import type { AuthenticatedUser } from '../auth/types/authenticated-user.interface';
+import { ModelMaterialService } from './model-material.service';
 import { ModelOptimizationService } from './model-optimization.service';
 import { UsdzConversionService } from './usdz-conversion.service';
 
@@ -38,6 +39,7 @@ export class ManualModelUploadService {
     private readonly usdz: UsdzConversionService,
     private readonly storage: StorageService,
     private readonly modelOptimization: ModelOptimizationService,
+    private readonly modelMaterial: ModelMaterialService,
   ) {}
 
   async uploadManualModel(
@@ -64,8 +66,12 @@ export class ManualModelUploadService {
     // Validate (extension, MIME, GLB header) before any parser sees the
     // bytes; only then optimize and store the derivative.
     this.glbUpload.assertValid(file);
-    const glbBuffer = await this.modelOptimization.optimizeOrOriginal(
+    const optimized = await this.modelOptimization.optimizeOrOriginal(
       file.buffer,
+      `manual upload for item ${itemId}`,
+    );
+    const glbBuffer = await this.modelMaterial.makeNonMetallic(
+      optimized,
       `manual upload for item ${itemId}`,
     );
     const { url: modelGlbUrl } = await this.glbUpload.store(
