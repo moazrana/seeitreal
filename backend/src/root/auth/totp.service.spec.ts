@@ -10,27 +10,31 @@ function buildService(): TotpService {
 }
 
 describe('TotpService', () => {
-  describe('generateSecret / keyUri / verifyCode', () => {
-    it('generates a secret that produces a code verifyCode() accepts', () => {
+  describe('generateSecret / keyUri / matchedStep', () => {
+    it('generates a secret that produces a code matchedStep() accepts', () => {
       const service = buildService();
       const secret = service.generateSecret();
       const code = authenticator.generate(secret);
 
-      expect(service.verifyCode(code, secret)).toBe(true);
+      // The current 30s step (±1 if the clock ticked over mid-test).
+      const step = service.matchedStep(code, secret);
+      expect(
+        Math.abs((step ?? 0) - Math.floor(Date.now() / 30_000)),
+      ).toBeLessThanOrEqual(1);
     });
 
     it('rejects a wrong code', () => {
       const service = buildService();
       const secret = service.generateSecret();
 
-      expect(service.verifyCode('000000', secret)).toBe(false);
+      expect(service.matchedStep('000000', secret)).toBeNull();
     });
 
     it('rejects a malformed secret instead of throwing', () => {
       const service = buildService();
-      expect(service.verifyCode('123456', 'not-a-valid-base32-secret!!!')).toBe(
-        false,
-      );
+      expect(
+        service.matchedStep('123456', 'not-a-valid-base32-secret!!!'),
+      ).toBeNull();
     });
 
     it('builds an otpauth:// URI with the account email and issuer', () => {

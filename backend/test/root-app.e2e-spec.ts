@@ -86,6 +86,16 @@ describe('Root App (e2e)', () => {
     };
   }
 
+  /** TOTP codes are single-use per 30-second step, so a test that logs in
+   * again right after enrolling stands in for the next step by clearing
+   * the admin's last-used step (the test can't wait 30 seconds). */
+  async function advancePastLastTotpStep(email: string) {
+    await prisma.rootAdminUser.update({
+      where: { email },
+      data: { lastTotpStep: null },
+    });
+  }
+
   // Signup creates the owner's one restaurant in the same request (one
   // restaurant per account) — callers use restaurantId from here rather
   // than a separate POST /api/restaurants, which now 409s for an owner
@@ -121,6 +131,7 @@ describe('Root App (e2e)', () => {
       .expect(200);
     expect(loginRes.body.status).toBe('totp_required');
 
+    await advancePastLastTotpStep(email);
     const code = authenticator.generate(secret);
     const verifyRes = await request(app.getHttpServer())
       .post('/api/root/auth/totp/verify')
@@ -165,15 +176,43 @@ describe('Root App (e2e)', () => {
       .send({ email, password: 'CorrectHorse123' })
       .expect(200);
     const challenge = loginRes.body.token as string;
+    await advancePastLastTotpStep(email);
     await request(app.getHttpServer())
       .post('/api/root/auth/totp/verify')
       .send({ token: challenge, code: authenticator.generate(secret) })
       .expect(200);
 
     // Replaying the already-used challenge, even with a valid code, fails.
+    await advancePastLastTotpStep(email);
     await request(app.getHttpServer())
       .post('/api/root/auth/totp/verify')
       .send({ token: challenge, code: authenticator.generate(secret) })
+      .expect(401);
+  });
+
+  it('rejects a TOTP code that was already used, even on a fresh challenge', async () => {
+    const email = await seedRootAdmin();
+    const { secret } = await loginAndEnroll(email);
+    await advancePastLastTotpStep(email);
+    const code = authenticator.generate(secret);
+
+    const first = await request(app.getHttpServer())
+      .post('/api/root/auth/login')
+      .send({ email, password: 'CorrectHorse123' })
+      .expect(200);
+    await request(app.getHttpServer())
+      .post('/api/root/auth/totp/verify')
+      .send({ token: first.body.token, code })
+      .expect(200);
+
+    // Someone who saw that code can't use it again within its 30s step.
+    const second = await request(app.getHttpServer())
+      .post('/api/root/auth/login')
+      .send({ email, password: 'CorrectHorse123' })
+      .expect(200);
+    await request(app.getHttpServer())
+      .post('/api/root/auth/totp/verify')
+      .send({ token: second.body.token, code })
       .expect(401);
   });
 

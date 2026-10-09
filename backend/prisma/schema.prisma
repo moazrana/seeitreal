@@ -170,6 +170,7 @@ model User {
   ticketMessages          TicketMessage[]
   feedback                Feedback[]
   adminAuditLogs          AdminAuditLog[]
+  modelGenerations        ModelGeneration[]
 
   @@map("users")
 }
@@ -254,6 +255,7 @@ model Restaurant {
   supportTickets   SupportTicket[]
   feedback         Feedback[]
   promoRedemptions PromoRedemption[]
+  modelGenerations ModelGeneration[]
 
   @@index([ownerUserId])
   @@map("restaurants")
@@ -328,10 +330,11 @@ model MenuItem {
   createdAt            DateTime  @default(now()) @map("created_at")
   updatedAt            DateTime  @updatedAt @map("updated_at")
 
-  restaurant Restaurant      @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
-  category   MenuCategory    @relation(fields: [categoryId], references: [id], onDelete: Restrict)
-  dealItems  DealItem[]
-  photos     MenuItemPhoto[]
+  restaurant  Restaurant        @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  category    MenuCategory      @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  dealItems   DealItem[]
+  photos      MenuItemPhoto[]
+  generations ModelGeneration[]
 
   @@index([restaurantId])
   @@index([categoryId])
@@ -660,6 +663,9 @@ model RootAdminUser {
   // Each password step overwrites it and a successful code clears it, so a
   // challenge token is single-use and an older one stops working.
   totpChallengeJti    String?       @map("totp_challenge_jti") @db.VarChar(64)
+  // Last accepted TOTP time step; codes from this step or earlier are
+  // rejected, so a code can't be replayed within its 30-second step.
+  lastTotpStep        Int?          @map("last_totp_step")
   createdAt           DateTime      @default(now()) @map("created_at")
   updatedAt           DateTime      @updatedAt @map("updated_at")
 
@@ -732,4 +738,28 @@ enum ContactEmailStatus {
   sent
   not_configured
   failed
+}
+
+/// One row per Tripo job submitted (spec §11.4: log the task_id for every
+/// job). Also the source for the per-user daily generation cap, since every
+/// row is a paid Tripo call.
+model ModelGeneration {
+  id           Int      @id @default(autoincrement())
+  restaurantId Int      @map("restaurant_id")
+  userId       Int      @map("user_id")
+  menuItemId   Int?     @map("menu_item_id")
+  tripoTaskId  String   @map("tripo_task_id") @db.VarChar(255)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // SetNull: deleting a dish must not erase the record of a paid job, or
+  // delete-and-recreate would reset the daily cap.
+  menuItem   MenuItem?  @relation(fields: [menuItemId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([restaurantId])
+  @@index([menuItemId])
+  @@map("model_generations")
 }

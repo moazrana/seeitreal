@@ -135,7 +135,7 @@ export class RootAuthService {
     }
 
     const secret = this.totp.decryptSecret(admin.totpSecretEncrypted);
-    if (!this.totp.verifyCode(dto.code, secret)) {
+    if (!(await this.acceptTotpCode(admin.id, dto.code, secret))) {
       await this.registerFailedLogin(admin.id);
       await this.audit.log(
         admin.id,
@@ -195,7 +195,7 @@ export class RootAuthService {
     }
 
     const secret = this.totp.decryptSecret(admin.totpSecretEncrypted);
-    let ok = this.totp.verifyCode(dto.code, secret);
+    let ok = await this.acceptTotpCode(admin.id, dto.code, secret);
 
     if (!ok) {
       const { valid, remainingJson } = await this.totp.verifyBackupCode(
@@ -271,18 +271,32 @@ export class RootAuthService {
 
     const tokenHash = this.hashToken(rawToken);
     const stored = await this.prisma.rootRefreshToken.findFirst({
-      where: { adminId: payload.sub, tokenHash, revoked: false },
+      where: { adminId: payload.sub, tokenHash },
     });
-    if (!stored || stored.expiresAt < new Date()) {
+    if (!stored) {
+      throw new UnauthorizedException('Invalid or expired refresh token');
+    }
+    if (stored.revoked) {
+      // A rotated-out token came back: it was stolen or replayed. Revoke
+      // every session for this admin so the attacker's copy dies too.
+      await this.revokeAllSessions(payload.sub, 'root_refresh_token_reuse');
+      throw new UnauthorizedException('Invalid or expired refresh token');
+    }
+    if (stored.expiresAt < new Date()) {
       throw new UnauthorizedException('Invalid or expired refresh token');
     }
 
-    // Rotation: the presented token is single-use — revoke it immediately
-    // so it can never be replayed, even if this exact request fails later.
-    await this.prisma.rootRefreshToken.update({
-      where: { id: stored.id },
+    // Rotation: the presented token is single-use. The conditional update
+    // means only one of two concurrent requests with the same token wins;
+    // the loser is treated as reuse.
+    const { count } = await this.prisma.rootRefreshToken.updateMany({
+      where: { id: stored.id, revoked: false },
       data: { revoked: true },
     });
+    if (count !== 1) {
+      await this.revokeAllSessions(payload.sub, 'root_refresh_token_reuse');
+      throw new UnauthorizedException('Invalid or expired refresh token');
+    }
 
     const admin = await this.prisma.rootAdminUser.findUnique({
       where: { id: payload.sub },
@@ -381,6 +395,34 @@ export class RootAuthService {
     if (count !== 1) {
       throw new UnauthorizedException('Invalid or expired challenge');
     }
+  }
+
+  /** Accepts a TOTP code at most once: the matched time step must be newer
+   * than the last one this admin used, claimed atomically so two
+   * concurrent requests with the same code can't both pass. */
+  private async acceptTotpCode(
+    adminId: number,
+    code: string,
+    secret: string,
+  ): Promise<boolean> {
+    const step = this.totp.matchedStep(code, secret);
+    if (step === null) return false;
+    const { count } = await this.prisma.rootAdminUser.updateMany({
+      where: {
+        id: adminId,
+        OR: [{ lastTotpStep: null }, { lastTotpStep: { lt: step } }],
+      },
+      data: { lastTotpStep: step },
+    });
+    return count === 1;
+  }
+
+  private async revokeAllSessions(adminId: number, auditAction: string) {
+    await this.prisma.rootRefreshToken.updateMany({
+      where: { adminId, revoked: false },
+      data: { revoked: true },
+    });
+    await this.audit.log(adminId, auditAction);
   }
 
   private isLocked(admin: { lockedUntil: Date | null }): boolean {
