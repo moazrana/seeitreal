@@ -5,6 +5,12 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PreviewLinkService } from '../../preview-link/preview-link.service';
+import { TripoGenerationService } from '../../tripo/tripo-generation.service';
+import {
+  resolveIssues,
+  serializeIssues,
+  type RegenerationIssue,
+} from '../../tripo/regeneration-guidance';
 import { RootAuditService } from '../audit/root-audit.service';
 import type { AuthenticatedRootAdmin } from '../types/authenticated-root-admin.interface';
 
@@ -22,6 +28,7 @@ export class RootQaService {
     private readonly prisma: PrismaService,
     private readonly audit: RootAuditService,
     private readonly previewLinks: PreviewLinkService,
+    private readonly generation: TripoGenerationService,
   ) {}
 
   qaQueue() {
@@ -112,11 +119,38 @@ export class RootQaService {
     return link;
   }
 
+  /** Starts a new Tripo job for a QA or live item, steered by the admin's
+   * reason (see regeneration-guidance.ts). Audit-logged with the note. */
+  async regenerate(
+    itemId: number,
+    note: string,
+    issues: RegenerationIssue[] | undefined,
+    admin: AuthenticatedRootAdmin,
+    ip: string | undefined,
+  ) {
+    const updated = await this.generation.regenerateAsAdmin(
+      itemId,
+      admin.adminId,
+      note,
+      issues,
+    );
+    await this.audit.log(
+      admin.adminId,
+      'regenerate_item',
+      'menu_item',
+      itemId,
+      note,
+      ip,
+    );
+    return updated;
+  }
+
   async reject(
     itemId: number,
     note: string,
     admin: AuthenticatedRootAdmin,
     ip: string | undefined,
+    issues?: RegenerationIssue[],
   ) {
     const item = await this.prisma.menuItem.findUnique({
       where: { id: itemId },
@@ -137,6 +171,8 @@ export class RootQaService {
       data: {
         arStatus: 'pending',
         qaNote: note,
+        // Kept so the owner's next generation addresses what was flagged.
+        qaIssues: serializeIssues(resolveIssues(note, issues)),
         modelGlbUrl: null,
         modelUsdzUrl: null,
         previewImageUrl: null,

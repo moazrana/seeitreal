@@ -6,6 +6,16 @@ import { PreviewLinkService } from '../../preview-link/preview-link.service';
 import { RootAuditService } from '../audit/root-audit.service';
 import { RootQaService } from './root-qa.service';
 
+// TripoGenerationService pulls in gltf-transform, which Jest can't load
+// (see tripo-generation.service.spec.ts); only its class token is needed.
+jest.mock('../../tripo/tripo-generation.service', () => ({
+  TripoGenerationService: jest.fn(),
+}));
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const generationModule = require('../../tripo/tripo-generation.service');
+const { TripoGenerationService } =
+  generationModule as typeof import('../../tripo/tripo-generation.service');
+
 describe('RootQaService', () => {
   let service: RootQaService;
   let prisma: {
@@ -13,6 +23,7 @@ describe('RootQaService', () => {
   };
   let audit: { log: jest.Mock };
   let previewLinks: { getLive: jest.Mock; create: jest.Mock };
+  let generation: { regenerateAsAdmin: jest.Mock };
 
   const admin = {
     adminId: 99,
@@ -30,6 +41,7 @@ describe('RootQaService', () => {
     };
     audit = { log: jest.fn() };
     previewLinks = { getLive: jest.fn(), create: jest.fn() };
+    generation = { regenerateAsAdmin: jest.fn() };
 
     const moduleRef = await Test.createTestingModule({
       providers: [
@@ -37,6 +49,7 @@ describe('RootQaService', () => {
         { provide: PrismaService, useValue: prisma },
         { provide: RootAuditService, useValue: audit },
         { provide: PreviewLinkService, useValue: previewLinks },
+        { provide: TripoGenerationService, useValue: generation },
       ],
     }).compile();
 
@@ -164,6 +177,8 @@ describe('RootQaService', () => {
         data: {
           arStatus: 'pending',
           qaNote: 'Model looks distorted',
+          // Inferred from the note: "distorted" is a shape problem.
+          qaIssues: 'shape',
           modelGlbUrl: null,
           modelUsdzUrl: null,
           previewImageUrl: null,
@@ -210,6 +225,50 @@ describe('RootQaService', () => {
       await expect(
         service.createPreviewLink(7, admin, undefined),
       ).rejects.toThrow();
+      expect(audit.log).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('regenerate', () => {
+    it('starts a regeneration with the reason and audit-logs it with the note', async () => {
+      generation.regenerateAsAdmin.mockResolvedValueOnce({
+        id: 7,
+        arStatus: 'generating',
+      });
+
+      await expect(
+        service.regenerate(
+          7,
+          'Colors too orange',
+          ['colors'],
+          admin,
+          '1.2.3.4',
+        ),
+      ).resolves.toEqual({ id: 7, arStatus: 'generating' });
+      expect(generation.regenerateAsAdmin).toHaveBeenCalledWith(
+        7,
+        admin.adminId,
+        'Colors too orange',
+        ['colors'],
+      );
+      expect(audit.log).toHaveBeenCalledWith(
+        admin.adminId,
+        'regenerate_item',
+        'menu_item',
+        7,
+        'Colors too orange',
+        '1.2.3.4',
+      );
+    });
+
+    it('does not audit-log a refused regeneration', async () => {
+      generation.regenerateAsAdmin.mockRejectedValueOnce(
+        new BadRequestException('not allowed'),
+      );
+
+      await expect(
+        service.regenerate(7, 'x', undefined, admin, undefined),
+      ).rejects.toBeInstanceOf(BadRequestException);
       expect(audit.log).not.toHaveBeenCalled();
     });
   });

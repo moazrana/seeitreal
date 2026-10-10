@@ -18,7 +18,14 @@ import { ModelOptimizationService } from './model-optimization.service';
 import { ModelScalingService } from './model-scaling.service';
 import { TripoClientService } from './tripo-client.service';
 import { UsdzConversionService } from './usdz-conversion.service';
-import type { TripoTaskResult } from './tripo.types';
+import {
+  guidanceOptions,
+  parseIssues,
+  resolveIssues,
+  serializeIssues,
+  type RegenerationIssue,
+} from './regeneration-guidance';
+import type { TripoGenerationOptions, TripoTaskResult } from './tripo.types';
 
 // Poll fallback only looks at jobs that have had a fair chance to arrive
 // via webhook first (spec §11.2: webhook preferred, polling is fallback).
@@ -36,6 +43,9 @@ const MAX_MULTIVIEW_IMAGES = 4;
 // burn credits by creating dishes and generating repeatedly. Overridable
 // with TRIPO_DAILY_GENERATIONS_PER_USER.
 const DEFAULT_DAILY_GENERATIONS_PER_USER = 20;
+// Admins regenerate across every restaurant, so their cap is higher.
+// Overridable with TRIPO_DAILY_GENERATIONS_PER_ADMIN.
+const DEFAULT_DAILY_GENERATIONS_PER_ADMIN = 50;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 @Injectable()
@@ -61,13 +71,118 @@ export class TripoGenerationService {
     user: AuthenticatedUser,
   ) {
     await this.restaurants.assertOwnership(restaurantId, user);
-    const item = await this.prisma.menuItem.findUnique({
-      where: { id: itemId },
-      include: { photos: { orderBy: { sortOrder: 'asc' } } },
-    });
+    const item = await this.loadItemWithPhotos(itemId);
     if (!item || item.restaurantId !== restaurantId) {
       throw new NotFoundException('Item not found');
     }
+    const photoUrls = this.photoUrlsOf(item);
+    // The item's own status is the debounce/guard (spec §7.4): only a
+    // freshly-created or freshly-photographed item can trigger a job, so
+    // a user can't fire this repeatedly while one is already in flight.
+    if (item.arStatus !== 'pending') {
+      throw new BadRequestException(
+        `Cannot start generation while item is in "${item.arStatus}" status`,
+      );
+    }
+    await this.assertUnderDailyCap({ userId: user.userId });
+
+    // After an admin rejection, the next generation addresses what the
+    // admin flagged (qaIssues, or keywords in the rejection note).
+    const guidance = item.qaNote
+      ? guidanceOptions(resolveIssues(item.qaNote, parseIssues(item.qaIssues)))
+      : {};
+    const taskId = await this.submitJob(itemId, photoUrls, guidance);
+
+    const [updated] = await this.prisma.$transaction([
+      this.prisma.menuItem.update({
+        where: { id: itemId },
+        data: {
+          arStatus: 'generating',
+          tripoTaskId: taskId,
+          qaNote: null,
+          qaIssues: null,
+        },
+      }),
+      this.prisma.modelGeneration.create({
+        data: {
+          restaurantId,
+          userId: user.userId,
+          menuItemId: itemId,
+          tripoTaskId: taskId,
+        },
+      }),
+    ]);
+    return updated;
+  }
+
+  /**
+   * Admin-triggered regeneration from the Root App QA screen, for a model
+   * awaiting QA or already live. The admin's reason is kept on the item
+   * (shown to the owner) and its flagged issues steer the new job's
+   * settings. A live dish leaves the diner page until the new model is
+   * approved.
+   */
+  async regenerateAsAdmin(
+    itemId: number,
+    rootAdminId: number,
+    note: string,
+    issues?: readonly RegenerationIssue[],
+  ) {
+    const item = await this.loadItemWithPhotos(itemId);
+    if (!item) {
+      throw new NotFoundException('Item not found');
+    }
+    if (item.arStatus !== 'qa' && item.arStatus !== 'live') {
+      throw new BadRequestException(
+        `Cannot regenerate while item is in "${item.arStatus}" status`,
+      );
+    }
+    const photoUrls = this.photoUrlsOf(item);
+    await this.assertUnderDailyCap({ rootAdminId });
+
+    const resolved = resolveIssues(note, issues);
+    const taskId = await this.submitJob(
+      itemId,
+      photoUrls,
+      guidanceOptions(resolved),
+    );
+
+    const [updated] = await this.prisma.$transaction([
+      this.prisma.menuItem.update({
+        where: { id: itemId },
+        data: {
+          arStatus: 'generating',
+          tripoTaskId: taskId,
+          qaNote: note,
+          qaIssues: serializeIssues(resolved),
+          // A new job supersedes any QA preview link for the old model.
+          previewLinkNonce: null,
+          previewLinkExpiresAt: null,
+        },
+      }),
+      this.prisma.modelGeneration.create({
+        data: {
+          restaurantId: item.restaurantId,
+          rootAdminId,
+          menuItemId: itemId,
+          tripoTaskId: taskId,
+        },
+      }),
+    ]);
+    return updated;
+  }
+
+  private loadItemWithPhotos(itemId: number) {
+    return this.prisma.menuItem.findUnique({
+      where: { id: itemId },
+      include: { photos: { orderBy: { sortOrder: 'asc' } } },
+    });
+  }
+
+  private photoUrlsOf(item: {
+    photos?: { url: string }[];
+    photoUrl: string | null;
+  }): string[] {
     // Prefer the ordered `photos` set (documents/3d-model-enhancement.md
     // §1); fall back to the legacy single `photoUrl` for items created
     // before that migration backfilled it.
@@ -80,22 +195,21 @@ export class TripoGenerationService {
         'Upload a photo before generating a 3D model',
       );
     }
-    // The item's own status is the debounce/guard (spec §7.4): only a
-    // freshly-created or freshly-photographed item can trigger a job, so
-    // a user can't fire this repeatedly while one is already in flight.
-    if (item.arStatus !== 'pending') {
-      throw new BadRequestException(
-        `Cannot start generation while item is in "${item.arStatus}" status`,
-      );
-    }
-    await this.assertUnderDailyCap(user.userId);
+    return photoUrls;
+  }
 
-    const callbackUrl = this.buildCallbackUrl();
-    const generationOptions = {
+  /** Submits one paid Tripo job and returns its task id. */
+  private async submitJob(
+    itemId: number,
+    photoUrls: string[],
+    guidance: Partial<TripoGenerationOptions>,
+  ): Promise<string> {
+    const generationOptions: TripoGenerationOptions = {
       texture: true,
-      // Off by default: PBR maps lengthen every job, and their metallic
-      // channel is what made dishes look like chrome. Food needs only the
-      // base-colour texture. TRIPO_PBR=true turns it back on.
+      // Off by default: PBR maps lengthen every job. Metallic is forced to
+      // 0 afterwards either way (ModelMaterialService), so turning it on —
+      // via TRIPO_PBR=true or "wrong colors" guidance — never brings back
+      // the chrome look.
       pbr: this.config.get<string>('TRIPO_PBR') === 'true',
       // 'standard' by default — 'detailed' texturing noticeably lengthens
       // every job; set TRIPO_TEXTURE_QUALITY=detailed to trade speed back
@@ -103,7 +217,8 @@ export class TripoGenerationService {
       textureQuality:
         this.config.get<string>('TRIPO_TEXTURE_QUALITY') ?? 'standard',
       faceLimit: this.faceLimit(),
-      callbackUrl,
+      callbackUrl: this.buildCallbackUrl(),
+      ...guidance,
     };
     // Routing (documents/3d-model-enhancement.md §1): a single photo uses
     // Tripo's single-image endpoint; 2+ use multiview, which reconstructs
@@ -119,38 +234,30 @@ export class TripoGenerationService {
     this.logger.log(
       `Item ${itemId}: submitted Tripo task ${taskId} (${photoUrls.length === 1 ? 'single-image' : 'multiview'})`,
     );
-
-    const [updated] = await this.prisma.$transaction([
-      this.prisma.menuItem.update({
-        where: { id: itemId },
-        data: { arStatus: 'generating', tripoTaskId: taskId, qaNote: null },
-      }),
-      this.prisma.modelGeneration.create({
-        data: {
-          restaurantId,
-          userId: user.userId,
-          menuItemId: itemId,
-          tripoTaskId: taskId,
-        },
-      }),
-    ]);
-    return updated;
+    return taskId;
   }
 
-  /** 429 once the user has submitted their daily number of Tripo jobs
-   * (rolling 24 hours, across all their restaurants). */
-  private async assertUnderDailyCap(userId: number): Promise<void> {
-    const raw = this.config.get<string>('TRIPO_DAILY_GENERATIONS_PER_USER');
-    const limit =
-      raw === undefined || raw === ''
-        ? DEFAULT_DAILY_GENERATIONS_PER_USER
-        : Number(raw);
+  /** 429 once the user (rolling 24 hours, across all their restaurants)
+   * or admin has submitted their daily number of Tripo jobs. */
+  private async assertUnderDailyCap(
+    who: { userId: number } | { rootAdminId: number },
+  ): Promise<void> {
+    const isAdmin = 'rootAdminId' in who;
+    const raw = this.config.get<string>(
+      isAdmin
+        ? 'TRIPO_DAILY_GENERATIONS_PER_ADMIN'
+        : 'TRIPO_DAILY_GENERATIONS_PER_USER',
+    );
+    const fallback = isAdmin
+      ? DEFAULT_DAILY_GENERATIONS_PER_ADMIN
+      : DEFAULT_DAILY_GENERATIONS_PER_USER;
+    const limit = raw === undefined || raw === '' ? fallback : Number(raw);
     const recent = await this.prisma.modelGeneration.count({
-      where: { userId, createdAt: { gte: new Date(Date.now() - DAY_MS) } },
+      where: { ...who, createdAt: { gte: new Date(Date.now() - DAY_MS) } },
     });
     if (recent >= limit) {
       this.logger.warn(
-        `User ${userId} hit the daily 3D generation cap (${limit})`,
+        `${isAdmin ? 'Admin' : 'User'} ${Object.values(who)[0]} hit the daily 3D generation cap (${limit})`,
       );
       throw new HttpException(
         `Daily 3D generation limit reached (${limit} per 24 hours). Please try again later.`,

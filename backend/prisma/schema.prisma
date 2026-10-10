@@ -313,6 +313,10 @@ model MenuItem {
   tripoTaskId          String?   @map("tripo_task_id") @db.VarChar(255)
   // Admin's note when rejecting an item out of the QA queue (spec §10.3).
   qaNote               String?   @map("qa_note") @db.Text
+  // What the admin flagged when rejecting or regenerating, as a comma list
+  // of RegenerationIssue values. Tripo takes no text prompt, so these (not
+  // the free-text note) steer the next generation's settings.
+  qaIssues             String?   @map("qa_issues") @db.VarChar(100)
   // Root App item control (rootApp/ROOT-APP-Implementation-Spec.md §3.3).
   // Only pulls the item's public AR page — the owner keeps full edit
   // access, unlike a suspended restaurant.
@@ -669,9 +673,10 @@ model RootAdminUser {
   createdAt           DateTime      @default(now()) @map("created_at")
   updatedAt           DateTime      @updatedAt @map("updated_at")
 
-  refreshTokens RootRefreshToken[]
-  auditLogs     RootAuditLog[]
-  promoCodes    PromoCode[]
+  refreshTokens    RootRefreshToken[]
+  modelGenerations ModelGeneration[]
+  auditLogs        RootAuditLog[]
+  promoCodes       PromoCode[]
 
   @@map("root_admin_users")
 }
@@ -746,19 +751,24 @@ enum ContactEmailStatus {
 model ModelGeneration {
   id           Int      @id @default(autoincrement())
   restaurantId Int      @map("restaurant_id")
-  userId       Int      @map("user_id")
+  // Exactly one of userId (owner-triggered) or rootAdminId
+  // (admin-triggered regeneration) is set.
+  userId       Int?     @map("user_id")
+  rootAdminId  Int?     @map("root_admin_id")
   menuItemId   Int?     @map("menu_item_id")
   tripoTaskId  String   @map("tripo_task_id") @db.VarChar(255)
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
-  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
-  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  restaurant Restaurant     @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  user       User?          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rootAdmin  RootAdminUser? @relation(fields: [rootAdminId], references: [id], onDelete: Cascade)
   // SetNull: deleting a dish must not erase the record of a paid job, or
   // delete-and-recreate would reset the daily cap.
-  menuItem   MenuItem?  @relation(fields: [menuItemId], references: [id], onDelete: SetNull)
+  menuItem   MenuItem?      @relation(fields: [menuItemId], references: [id], onDelete: SetNull)
 
   @@index([userId, createdAt])
+  @@index([rootAdminId, createdAt])
   @@index([restaurantId])
   @@index([menuItemId])
   @@map("model_generations")

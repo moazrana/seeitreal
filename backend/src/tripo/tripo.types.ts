@@ -53,6 +53,12 @@ export interface TripoGenerationOptions {
    * asking for the budget up front cuts generation, download and
    * optimization time. Omitted from the request when unset. */
   faceLimit?: number;
+  /** Regeneration guidance (regeneration-guidance.ts): fresh seeds make a
+   * regenerated model actually differ from the rejected one, and
+   * 'original_image' alignment keeps texture colors closer to the photo. */
+  modelSeed?: number;
+  textureSeed?: number;
+  textureAlignment?: 'original_image' | 'geometry';
   /** Tripo notifies this URL via POST when the task finishes (spec §11.1).
    * We append a shared-secret token as a query param for verification. */
   callbackUrl?: string;
