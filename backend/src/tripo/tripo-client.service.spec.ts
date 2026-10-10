@@ -1,5 +1,8 @@
 import type { ConfigService } from '@nestjs/config';
-import { TripoClientService } from './tripo-client.service';
+import {
+  TripoClientService,
+  TripoRequestRejectedError,
+} from './tripo-client.service';
 
 describe('TripoClientService guidance parameters', () => {
   let fetchMock: jest.Mock;
@@ -65,5 +68,33 @@ describe('TripoClientService guidance parameters', () => {
       client.submitImageToModel('https://cdn.example/p.jpg', {}),
     ).rejects.toThrow('could not be started');
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('always sends exactly 4 multiview slots, leaving missing views empty', async () => {
+    fetchMock.mockResolvedValueOnce(json({ data: { task_id: 't3' } }));
+
+    await client.submitMultiviewToModel(
+      [
+        'https://cdn.example/a.jpg',
+        'https://cdn.example/b.jpg',
+        'https://cdn.example/c.jpg',
+      ],
+      {},
+    );
+
+    expect(sentBody(0).files).toEqual([
+      { type: 'jpg', url: 'https://cdn.example/a.jpg' },
+      { type: 'jpg', url: 'https://cdn.example/b.jpg' },
+      { type: 'jpg', url: 'https://cdn.example/c.jpg' },
+      {},
+    ]);
+  });
+
+  it('reports a 4xx refusal as TripoRequestRejectedError', async () => {
+    fetchMock.mockResolvedValueOnce(json({ message: 'bad' }, 400));
+
+    await expect(
+      client.submitImageToModel('https://cdn.example/p.jpg', {}),
+    ).rejects.toBeInstanceOf(TripoRequestRejectedError);
   });
 });

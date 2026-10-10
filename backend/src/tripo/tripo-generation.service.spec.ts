@@ -5,7 +5,10 @@ import { UserRole } from '@ar-menu/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { RestaurantsService } from '../restaurants/restaurants.service';
 import { StorageService } from '../storage/storage.service';
-import { TripoClientService } from './tripo-client.service';
+import {
+  TripoClientService,
+  TripoRequestRejectedError,
+} from './tripo-client.service';
 import { TripoGenerationService } from './tripo-generation.service';
 import { UsdzConversionService } from './usdz-conversion.service';
 
@@ -319,6 +322,56 @@ describe('TripoGenerationService', () => {
           tripoTaskId: 'task_1',
         },
       });
+    });
+
+    it('falls back to the first photo when Tripo refuses a multiview request', async () => {
+      prisma.menuItem.findUnique.mockResolvedValueOnce({
+        id: 1,
+        restaurantId: restaurant.id,
+        photos: [
+          { id: 1, sortOrder: 0, url: 'http://example.com/a.jpg' },
+          { id: 2, sortOrder: 1, url: 'http://example.com/b.jpg' },
+          { id: 3, sortOrder: 2, url: 'http://example.com/c.jpg' },
+        ],
+        arStatus: 'pending',
+      });
+      tripoClient.submitMultiviewToModel.mockRejectedValueOnce(
+        new TripoRequestRejectedError(),
+      );
+      tripoClient.submitImageToModel.mockResolvedValueOnce({
+        taskId: 'task_f',
+      });
+      prisma.menuItem.update.mockResolvedValueOnce({ id: 1 });
+
+      await service.triggerGeneration(restaurant.id, 1, owner);
+
+      expect(tripoClient.submitImageToModel).toHaveBeenCalledWith(
+        'http://example.com/a.jpg',
+        expect.any(Object),
+      );
+      expect(prisma.modelGeneration.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ tripoTaskId: 'task_f' }),
+      });
+    });
+
+    it('does not fall back on a server error (a task may exist)', async () => {
+      prisma.menuItem.findUnique.mockResolvedValueOnce({
+        id: 1,
+        restaurantId: restaurant.id,
+        photos: [
+          { id: 1, sortOrder: 0, url: 'http://example.com/a.jpg' },
+          { id: 2, sortOrder: 1, url: 'http://example.com/b.jpg' },
+        ],
+        arStatus: 'pending',
+      });
+      tripoClient.submitMultiviewToModel.mockRejectedValueOnce(
+        new Error('500 from Tripo'),
+      );
+
+      await expect(
+        service.triggerGeneration(restaurant.id, 1, owner),
+      ).rejects.toThrow('500 from Tripo');
+      expect(tripoClient.submitImageToModel).not.toHaveBeenCalled();
     });
 
     it('refuses with 429, before calling Tripo, once the daily cap is reached', async () => {
