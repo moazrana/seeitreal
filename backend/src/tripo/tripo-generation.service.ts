@@ -12,6 +12,7 @@ import { RestaurantsService } from '../restaurants/restaurants.service';
 import { StorageService } from '../storage/storage.service';
 import type { AuthenticatedUser } from '../auth/types/authenticated-user.interface';
 import { ModelMaterialService } from './model-material.service';
+import { fetchWithRetry } from './fetch-retry';
 import { TARGET_TRIANGLES } from './model-budget';
 import { ModelOptimizationService } from './model-optimization.service';
 import { ModelScalingService } from './model-scaling.service';
@@ -386,7 +387,7 @@ export class TripoGenerationService {
   }
 
   private async downloadToBuffer(url: string): Promise<Buffer> {
-    const res = await fetch(url);
+    const res = await fetchWithRetry(url, {}, { idempotent: true });
     if (!res.ok) {
       throw new Error(`Failed to download ${url}: ${res.status}`);
     }

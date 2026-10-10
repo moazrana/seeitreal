@@ -4,6 +4,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { fetchWithRetry } from './fetch-retry';
 import type {
   TripoGenerationOptions,
   TripoSubmitResult,
@@ -92,14 +93,20 @@ export class TripoClientService {
     path: string,
     body: Record<string, unknown>,
   ): Promise<TripoSubmitResult> {
-    const res = await fetch(`${this.baseUrl}/${path}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${this.apiKey()}`,
+    // Not idempotent (each accepted submit is a paid task), so only
+    // connect-phase failures are retried.
+    const res = await fetchWithRetry(
+      `${this.baseUrl}/${path}`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${this.apiKey()}`,
+        },
+        body: JSON.stringify(body),
       },
-      body: JSON.stringify(body),
-    });
+      { idempotent: false },
+    );
 
     if (!res.ok) {
       const bodyText = await res.text().catch(() => '');
@@ -127,11 +134,10 @@ export class TripoClientService {
   }
 
   async getTaskStatus(taskId: string): Promise<TripoTaskResult> {
-    const res = await fetch(
+    const res = await fetchWithRetry(
       `${this.baseUrl}/tasks/${encodeURIComponent(taskId)}`,
-      {
-        headers: { Authorization: `Bearer ${this.apiKey()}` },
-      },
+      { headers: { Authorization: `Bearer ${this.apiKey()}` } },
+      { idempotent: true },
     );
 
     if (!res.ok) {
