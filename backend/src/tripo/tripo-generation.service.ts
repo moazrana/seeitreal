@@ -16,7 +16,11 @@ import { fetchWithRetry } from './fetch-retry';
 import { TARGET_TRIANGLES } from './model-budget';
 import { ModelOptimizationService } from './model-optimization.service';
 import { ModelScalingService } from './model-scaling.service';
-import { TripoClientService } from './tripo-client.service';
+import {
+  MULTIVIEW_SLOTS,
+  TripoClientService,
+  TripoRequestRejectedError,
+} from './tripo-client.service';
 import { UsdzConversionService } from './usdz-conversion.service';
 import {
   guidanceOptions,
@@ -31,13 +35,6 @@ import type { TripoGenerationOptions, TripoTaskResult } from './tripo.types';
 // via webhook first (spec §11.2: webhook preferred, polling is fallback).
 // Kept short: a missed webhook shouldn't add minutes to a ~1-minute job.
 const POLL_MIN_AGE_MS = 30 * 1000;
-
-// Tripo's multiview endpoint has a fixed max input count. If an owner
-// uploaded more than this, we cap it here — see
-// TripoClientService.submitMultiviewToModel's doc comment for why (we
-// don't capture per-photo angle labels to pick "the most distinct" by, so
-// this takes the first N in upload order).
-const MAX_MULTIVIEW_IMAGES = 4;
 
 // Every submit is a paid Tripo call. Without a cap, any new signup could
 // burn credits by creating dishes and generating repeatedly. Overridable
@@ -224,17 +221,42 @@ export class TripoGenerationService {
     // Tripo's single-image endpoint; 2+ use multiview, which reconstructs
     // the model from real angles instead of hallucinating unseen sides —
     // the single biggest realism gain of this pipeline.
-    const { taskId } =
-      photoUrls.length === 1
-        ? await this.tripo.submitImageToModel(photoUrls[0], generationOptions)
-        : await this.tripo.submitMultiviewToModel(
-            photoUrls.slice(0, MAX_MULTIVIEW_IMAGES),
-            generationOptions,
-          );
-    this.logger.log(
-      `Item ${itemId}: submitted Tripo task ${taskId} (${photoUrls.length === 1 ? 'single-image' : 'multiview'})`,
-    );
-    return taskId;
+    if (photoUrls.length === 1) {
+      const { taskId } = await this.tripo.submitImageToModel(
+        photoUrls[0],
+        generationOptions,
+      );
+      this.logger.log(
+        `Item ${itemId}: submitted Tripo task ${taskId} (single-image)`,
+      );
+      return taskId;
+    }
+    try {
+      const { taskId } = await this.tripo.submitMultiviewToModel(
+        photoUrls.slice(0, MULTIVIEW_SLOTS),
+        generationOptions,
+      );
+      this.logger.log(
+        `Item ${itemId}: submitted Tripo task ${taskId} (multiview)`,
+      );
+      return taskId;
+    } catch (err) {
+      // A refused multiview request (e.g. Tripo not accepting empty slots
+      // for 2-3 photos) cost nothing, so fall back to the first photo
+      // rather than leaving the owner unable to generate at all.
+      if (!(err instanceof TripoRequestRejectedError)) throw err;
+      this.logger.warn(
+        `Item ${itemId}: multiview refused for ${photoUrls.length} photos, falling back to single-image`,
+      );
+      const { taskId } = await this.tripo.submitImageToModel(
+        photoUrls[0],
+        generationOptions,
+      );
+      this.logger.log(
+        `Item ${itemId}: submitted Tripo task ${taskId} (single-image fallback)`,
+      );
+      return taskId;
+    }
   }
 
   /** 429 once the user (rolling 24 hours, across all their restaurants)

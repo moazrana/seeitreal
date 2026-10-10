@@ -14,6 +14,16 @@ import type {
 
 const DEFAULT_BASE_URL = 'https://openapi.tripo3d.ai/v3';
 const GUIDANCE_KEYS = ['model_seed', 'texture_seed', 'texture_alignment'];
+/** Tripo's multiview endpoint takes exactly this many `files` entries. */
+export const MULTIVIEW_SLOTS = 4;
+
+/** Tripo refused the request (4xx): no task was created and no credit
+ * spent, so the caller may safely try a different request. */
+export class TripoRequestRejectedError extends InternalServerErrorException {
+  constructor() {
+    super('3D model generation could not be started');
+  }
+}
 
 /**
  * Thin wrapper around the Tripo REST API. Server-side only — the API key
@@ -64,16 +74,22 @@ export class TripoClientService {
     imageUrls: string[],
     options: TripoGenerationOptions = {},
   ): Promise<TripoSubmitResult> {
-    if (imageUrls.length < 2) {
+    if (imageUrls.length < 2 || imageUrls.length > MULTIVIEW_SLOTS) {
       throw new InternalServerErrorException(
-        'Multiview generation requires at least 2 images',
+        `Multiview generation takes 2-${MULTIVIEW_SLOTS} images`,
       );
     }
+    // Confirmed live (2026-10-10): Tripo 400s unless `files` has exactly 4
+    // entries ("files with exactly 4 items are required"). With fewer
+    // photos the remaining slots are sent empty, which Tripo's multiview
+    // API documents as "view not provided".
+    const files: Record<string, string>[] = imageUrls.map((url) => ({
+      type: this.imageTypeFromUrl(url),
+      url,
+    }));
+    while (files.length < MULTIVIEW_SLOTS) files.push({});
     const body: Record<string, unknown> = {
-      files: imageUrls.map((url) => ({
-        type: this.imageTypeFromUrl(url),
-        url,
-      })),
+      files,
       model: this.config.get<string>('TRIPO_MODEL_VERSION') ?? 'v3.1-20260211',
       texture: options.texture ?? true,
       pbr: options.pbr ?? true,
@@ -105,6 +121,9 @@ export class TripoClientService {
       this.logger.error(
         `Tripo submit (${path}) failed: ${res.status} ${bodyText}`,
       );
+      if (res.status >= 400 && res.status < 500) {
+        throw new TripoRequestRejectedError();
+      }
       throw new InternalServerErrorException(
         '3D model generation could not be started',
       );
