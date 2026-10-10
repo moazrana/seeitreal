@@ -170,6 +170,12 @@ class EnvironmentVariables {
   @Matches(/^\d+$/)
   TRIPO_DAILY_GENERATIONS_PER_USER?: string;
 
+  // Max Tripo regenerations one Root App admin may start per rolling 24
+  // hours. Defaults to 50 in TripoGenerationService.
+  @IsOptional()
+  @Matches(/^\d+$/)
+  TRIPO_DAILY_GENERATIONS_PER_ADMIN?: string;
+
   // Image-based lighting for the diner AR viewer's <model-viewer>
   // (documents/3d-model-enhancement.md §3) — a warm kitchen/restaurant HDR
   // hosted on object storage gives the most realistic result; the literal

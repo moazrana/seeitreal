@@ -13,6 +13,7 @@ import type {
 } from './tripo.types';
 
 const DEFAULT_BASE_URL = 'https://openapi.tripo3d.ai/v3';
+const GUIDANCE_KEYS = ['model_seed', 'texture_seed', 'texture_alignment'];
 
 /**
  * Thin wrapper around the Tripo REST API. Server-side only — the API key
@@ -77,15 +78,7 @@ export class TripoClientService {
       texture: options.texture ?? true,
       pbr: options.pbr ?? true,
     };
-    if (options.textureQuality) {
-      body.texture_quality = options.textureQuality;
-    }
-    if (options.faceLimit) {
-      body.face_limit = options.faceLimit;
-    }
-    if (options.callbackUrl) {
-      body.callback_url = options.callbackUrl;
-    }
+    this.applyOptions(body, options);
     return this.submit('generation/multiview-to-model', body);
   }
 
@@ -93,20 +86,19 @@ export class TripoClientService {
     path: string,
     body: Record<string, unknown>,
   ): Promise<TripoSubmitResult> {
-    // Not idempotent (each accepted submit is a paid task), so only
-    // connect-phase failures are retried.
-    const res = await fetchWithRetry(
-      `${this.baseUrl}/${path}`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${this.apiKey()}`,
-        },
-        body: JSON.stringify(body),
-      },
-      { idempotent: false },
-    );
+    let res = await this.post(path, body);
+    // A 400 creates no task, so it's safe to retry once without the
+    // optional guidance parameters if this API version doesn't know them.
+    const guidance = GUIDANCE_KEYS.filter((key) => key in body);
+    if (res.status === 400 && guidance.length > 0) {
+      const bodyText = await res.text().catch(() => '');
+      this.logger.warn(
+        `Tripo rejected guidance parameters (${guidance.join(', ')}) on ${path}: ${bodyText} — retrying without them`,
+      );
+      const stripped = { ...body };
+      for (const key of guidance) delete stripped[key];
+      res = await this.post(path, stripped);
+    }
 
     if (!res.ok) {
       const bodyText = await res.text().catch(() => '');
@@ -131,6 +123,23 @@ export class TripoClientService {
 
     this.logger.log(`Submitted Tripo task ${taskId} (${path})`);
     return { taskId };
+  }
+
+  private post(path: string, body: Record<string, unknown>) {
+    // Not idempotent (each accepted submit is a paid task), so only
+    // connect-phase failures are retried.
+    return fetchWithRetry(
+      `${this.baseUrl}/${path}`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${this.apiKey()}`,
+        },
+        body: JSON.stringify(body),
+      },
+      { idempotent: false },
+    );
   }
 
   async getTaskStatus(taskId: string): Promise<TripoTaskResult> {
@@ -183,6 +192,14 @@ export class TripoClientService {
       texture: options.texture ?? true,
       pbr: options.pbr ?? true,
     };
+    this.applyOptions(body, options);
+    return body;
+  }
+
+  private applyOptions(
+    body: Record<string, unknown>,
+    options: TripoGenerationOptions,
+  ): void {
     if (options.textureQuality) {
       body.texture_quality = options.textureQuality;
     }
@@ -192,7 +209,18 @@ export class TripoClientService {
     if (options.callbackUrl) {
       body.callback_url = options.callbackUrl;
     }
-    return body;
+    // Regeneration guidance (see regeneration-guidance.ts). Names follow
+    // Tripo's documented image/multiview-to-model parameters; submit()
+    // drops them and retries once if this API version rejects them.
+    if (options.modelSeed !== undefined) {
+      body.model_seed = options.modelSeed;
+    }
+    if (options.textureSeed !== undefined) {
+      body.texture_seed = options.textureSeed;
+    }
+    if (options.textureAlignment) {
+      body.texture_alignment = options.textureAlignment;
+    }
   }
 
   /** Declares the *actual* format of the bytes at imageUrl — dish photos

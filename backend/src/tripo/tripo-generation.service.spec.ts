@@ -230,7 +230,12 @@ describe('TripoGenerationService', () => {
       );
       expect(prisma.menuItem.update).toHaveBeenCalledWith({
         where: { id: 1 },
-        data: { arStatus: 'generating', tripoTaskId: 'task_123', qaNote: null },
+        data: {
+          arStatus: 'generating',
+          tripoTaskId: 'task_123',
+          qaNote: null,
+          qaIssues: null,
+        },
       });
     });
 
@@ -372,6 +377,89 @@ describe('TripoGenerationService', () => {
       expect(tripoClient.submitImageToModel).toHaveBeenCalledWith(
         'http://example.com/photo.jpg',
         expect.objectContaining({ pbr: false, faceLimit: 150_000 }),
+      );
+    });
+  });
+
+  describe('regenerateAsAdmin', () => {
+    const qaItem = {
+      id: 1,
+      restaurantId: restaurant.id,
+      photos: [{ id: 1, sortOrder: 0, url: 'http://example.com/photo.jpg' }],
+      arStatus: 'qa',
+    };
+
+    it("submits with the reason's guidance, keeps the note, and logs the admin", async () => {
+      prisma.menuItem.findUnique.mockResolvedValueOnce(qaItem);
+      tripoClient.submitImageToModel.mockResolvedValueOnce({
+        taskId: 'task_9',
+      });
+      prisma.menuItem.update.mockResolvedValueOnce({ id: 1 });
+
+      await service.regenerateAsAdmin(1, 42, 'Bun is too orange', undefined);
+
+      expect(tripoClient.submitImageToModel).toHaveBeenCalledWith(
+        'http://example.com/photo.jpg',
+        expect.objectContaining({
+          pbr: true,
+          textureQuality: 'detailed',
+          textureAlignment: 'original_image',
+          modelSeed: expect.any(Number),
+        }),
+      );
+      expect(prisma.menuItem.update).toHaveBeenCalledWith({
+        where: { id: 1 },
+        data: expect.objectContaining({
+          arStatus: 'generating',
+          tripoTaskId: 'task_9',
+          qaNote: 'Bun is too orange',
+          qaIssues: 'colors',
+        }),
+      });
+      expect(prisma.modelGeneration.create).toHaveBeenCalledWith({
+        data: {
+          restaurantId: restaurant.id,
+          rootAdminId: 42,
+          menuItemId: 1,
+          tripoTaskId: 'task_9',
+        },
+      });
+      expect(prisma.modelGeneration.count).toHaveBeenCalledWith({
+        where: { rootAdminId: 42, createdAt: { gte: expect.any(Date) } },
+      });
+    });
+
+    it('allows live items but refuses one that is pending or generating', async () => {
+      prisma.menuItem.findUnique.mockResolvedValueOnce({
+        ...qaItem,
+        arStatus: 'generating',
+      });
+      await expect(
+        service.regenerateAsAdmin(1, 42, 'x', ['shape']),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(tripoClient.submitImageToModel).not.toHaveBeenCalled();
+    });
+
+    it("applies the stored rejection issues to the owner's next generation", async () => {
+      prisma.menuItem.findUnique.mockResolvedValueOnce({
+        ...qaItem,
+        arStatus: 'pending',
+        qaNote: 'please redo',
+        qaIssues: 'detail',
+      });
+      tripoClient.submitImageToModel.mockResolvedValueOnce({
+        taskId: 'task_5',
+      });
+      prisma.menuItem.update.mockResolvedValueOnce({ id: 1 });
+
+      await service.triggerGeneration(restaurant.id, 1, owner);
+
+      expect(tripoClient.submitImageToModel).toHaveBeenCalledWith(
+        'http://example.com/photo.jpg',
+        expect.objectContaining({
+          textureQuality: 'detailed',
+          modelSeed: expect.any(Number),
+        }),
       );
     });
   });

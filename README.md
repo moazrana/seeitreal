@@ -215,6 +215,14 @@ allow-list, and a global exception filter that never leaks internals to clients.
   rolling 24 hours (default 20, `429` beyond that). Dish creation enforces the restaurant's package
   `maxItems` when it has a subscription. Photo and logo URLs can only be set by the upload
   endpoints, never by the client.
+- Regeneration guidance (`tripo/regeneration-guidance.ts`): Tripo's image-to-model API takes no
+  text prompt, so an admin's reject/regenerate reason can't be sent to it literally. The admin
+  flags `issues` (`colors`, `shape`, `detail`; inferred from keywords in the note when none are
+  ticked), stored in `menu_items.qa_issues`. Colors → PBR on, detailed texture, texture aligned
+  to the original photo; detail → detailed texture; every regeneration gets fresh model/texture
+  seeds so the result differs. If Tripo rejects the seed/alignment parameters, the submit is
+  retried once without them. Admin regenerations are logged against the admin and capped by
+  `TRIPO_DAILY_GENERATIONS_PER_ADMIN` (default 50/day).
 
 **3D model realism enhancement** (`documents/3d-model-enhancement.md`) — extends spec §11:
 
@@ -424,7 +432,8 @@ its listed auth, and fully separate from the customer JWT above (`root-jwt` Pass
 | POST   | `/root/restaurants/:slug/items/:itemId/unhide` | root JWT + `superadmin` |                                                            |
 | GET    | `/root/qa-queue`                               | root JWT                | any role                                                   |
 | POST   | `/root/items/:id/approve`                      | root JWT                | requires both GLB and USDZ present (dimensions optional)   |
-| POST   | `/root/items/:id/reject`                       | root JWT                | body: `{ note }`                                           |
+| POST   | `/root/items/:id/reject`                       | root JWT                | body: `{ note, issues? }`; stored for the next generation  |
+| POST   | `/root/items/:id/regenerate`                   | root JWT                | QA/live items; body `{ note, issues? }`; 429 at admin cap  |
 | GET    | `/root/items/:id/preview-link`                 | root JWT                | QA items only: live link `{ url, expiresAt }`, or nulls    |
 | POST   | `/root/items/:id/preview-link`                 | root JWT                | creates a 24h link (201); 409 while one is live            |
 

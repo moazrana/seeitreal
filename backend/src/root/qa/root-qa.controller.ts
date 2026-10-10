@@ -15,6 +15,8 @@ import { CurrentRootAdmin } from '../common/decorators/current-root-admin.decora
 import { IpAllowlistGuard } from '../common/guards/ip-allowlist.guard';
 import { RootJwtAuthGuard } from '../common/guards/root-jwt-auth.guard';
 import type { AuthenticatedRootAdmin } from '../types/authenticated-root-admin.interface';
+import { Throttle } from '@nestjs/throttler';
+import { RegenerateItemDto } from './dto/regenerate-item.dto';
 import { RejectItemDto } from './dto/reject-item.dto';
 import { RootQaService } from './root-qa.service';
 
@@ -55,6 +57,20 @@ export class RootQaController {
     return this.qa.createPreviewLink(id, admin, req.ip);
   }
 
+  // Starts a paid Tripo job: capped per admin per day in the service, and
+  // throttled here like other expensive actions (spec §7.4).
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @HttpCode(HttpStatus.OK)
+  @Post('items/:id/regenerate')
+  regenerate(
+    @CurrentRootAdmin() admin: AuthenticatedRootAdmin,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: RegenerateItemDto,
+    @Req() req: Request,
+  ) {
+    return this.qa.regenerate(id, dto.note, dto.issues, admin, req.ip);
+  }
+
   @HttpCode(HttpStatus.OK)
   @Post('items/:id/reject')
   reject(
@@ -63,6 +79,6 @@ export class RootQaController {
     @Body() dto: RejectItemDto,
     @Req() req: Request,
   ) {
-    return this.qa.reject(id, dto.note, admin, req.ip);
+    return this.qa.reject(id, dto.note, admin, req.ip, dto.issues);
   }
 }
