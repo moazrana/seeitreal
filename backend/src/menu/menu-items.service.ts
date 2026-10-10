@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -46,6 +47,7 @@ export class MenuItemsService {
     await this.restaurants.assertOwnership(restaurantId, user);
     await this.assertNameAvailable(restaurantId, dto.name);
     await this.assertCategoryBelongs(restaurantId, dto.categoryId);
+    await this.assertUnderPlanItemLimit(restaurantId);
 
     return this.prisma.menuItem.create({
       include: PHOTOS_ORDERED,
@@ -54,7 +56,6 @@ export class MenuItemsService {
         categoryId: dto.categoryId,
         name: dto.name,
         description: dto.description,
-        photoUrl: dto.photoUrl,
         widthMm: dto.widthMm,
         heightMm: dto.heightMm,
         lengthMm: dto.lengthMm,
@@ -232,6 +233,25 @@ export class MenuItemsService {
    * existing data may already hold duplicate dish names, and each has its
    * own printed QR code, so they can't be merged or renamed automatically.
    */
+  /** Enforces the restaurant's package `maxItems` (null = unlimited).
+   * Restaurants that never checked out have no package yet, so no limit
+   * applies here; generation is separately capped per user per day. */
+  private async assertUnderPlanItemLimit(restaurantId: number) {
+    const subscription = await this.prisma.subscription.findFirst({
+      where: { restaurantId },
+      orderBy: { createdAt: 'desc' },
+      select: { package: { select: { maxItems: true, name: true } } },
+    });
+    const maxItems = subscription?.package.maxItems;
+    if (maxItems == null) return;
+    const count = await this.prisma.menuItem.count({ where: { restaurantId } });
+    if (count >= maxItems) {
+      throw new ForbiddenException(
+        `Your ${subscription!.package.name} plan allows up to ${maxItems} dishes. Upgrade your plan to add more.`,
+      );
+    }
+  }
+
   private async assertNameAvailable(
     restaurantId: number,
     name: string,

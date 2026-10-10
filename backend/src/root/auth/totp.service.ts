@@ -31,11 +31,20 @@ export class TotpService {
     return authenticator.keyuri(accountEmail, ISSUER, secret);
   }
 
-  verifyCode(code: string, secret: string): boolean {
+  /**
+   * The 30-second time step the code belongs to, or null if it doesn't
+   * match. Callers store the last accepted step per admin and reject any
+   * code from that step or earlier, so a code can't be used twice within
+   * its validity window.
+   */
+  matchedStep(code: string, secret: string): number | null {
     try {
-      return authenticator.check(code, secret);
+      const delta = authenticator.checkDelta(code, secret);
+      if (delta === null) return null;
+      const stepSeconds = authenticator.allOptions().step;
+      return Math.floor(Date.now() / 1000 / stepSeconds) + delta;
     } catch {
-      return false;
+      return null;
     }
   }
 

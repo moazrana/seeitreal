@@ -1,5 +1,7 @@
 import {
   BadRequestException,
+  HttpException,
+  HttpStatus,
   Injectable,
   Logger,
   NotFoundException,
@@ -28,6 +30,12 @@ const POLL_MIN_AGE_MS = 30 * 1000;
 // don't capture per-photo angle labels to pick "the most distinct" by, so
 // this takes the first N in upload order).
 const MAX_MULTIVIEW_IMAGES = 4;
+
+// Every submit is a paid Tripo call. Without a cap, any new signup could
+// burn credits by creating dishes and generating repeatedly. Overridable
+// with TRIPO_DAILY_GENERATIONS_PER_USER.
+const DEFAULT_DAILY_GENERATIONS_PER_USER = 20;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 @Injectable()
 export class TripoGenerationService {
@@ -79,6 +87,7 @@ export class TripoGenerationService {
         `Cannot start generation while item is in "${item.arStatus}" status`,
       );
     }
+    await this.assertUnderDailyCap(user.userId);
 
     const callbackUrl = this.buildCallbackUrl();
     const generationOptions = {
@@ -110,10 +119,43 @@ export class TripoGenerationService {
       `Item ${itemId}: submitted Tripo task ${taskId} (${photoUrls.length === 1 ? 'single-image' : 'multiview'})`,
     );
 
-    return this.prisma.menuItem.update({
-      where: { id: itemId },
-      data: { arStatus: 'generating', tripoTaskId: taskId, qaNote: null },
+    const [updated] = await this.prisma.$transaction([
+      this.prisma.menuItem.update({
+        where: { id: itemId },
+        data: { arStatus: 'generating', tripoTaskId: taskId, qaNote: null },
+      }),
+      this.prisma.modelGeneration.create({
+        data: {
+          restaurantId,
+          userId: user.userId,
+          menuItemId: itemId,
+          tripoTaskId: taskId,
+        },
+      }),
+    ]);
+    return updated;
+  }
+
+  /** 429 once the user has submitted their daily number of Tripo jobs
+   * (rolling 24 hours, across all their restaurants). */
+  private async assertUnderDailyCap(userId: number): Promise<void> {
+    const raw = this.config.get<string>('TRIPO_DAILY_GENERATIONS_PER_USER');
+    const limit =
+      raw === undefined || raw === ''
+        ? DEFAULT_DAILY_GENERATIONS_PER_USER
+        : Number(raw);
+    const recent = await this.prisma.modelGeneration.count({
+      where: { userId, createdAt: { gte: new Date(Date.now() - DAY_MS) } },
     });
+    if (recent >= limit) {
+      this.logger.warn(
+        `User ${userId} hit the daily 3D generation cap (${limit})`,
+      );
+      throw new HttpException(
+        `Daily 3D generation limit reached (${limit} per 24 hours). Please try again later.`,
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
   }
 
   /** Shared by the webhook handler and the poll fallback. */

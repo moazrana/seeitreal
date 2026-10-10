@@ -34,7 +34,7 @@ function buildPrismaMock(): MockPrisma {
       create: jest.fn(),
       findFirst: jest.fn(),
       update: jest.fn(),
-      updateMany: jest.fn(),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
   };
 }
@@ -46,7 +46,7 @@ describe('RootAuthService', () => {
   let totp: {
     generateSecret: jest.Mock;
     keyUri: jest.Mock;
-    verifyCode: jest.Mock;
+    matchedStep: jest.Mock;
     encryptSecret: jest.Mock;
     decryptSecret: jest.Mock;
     generateBackupCodes: jest.Mock;
@@ -95,7 +95,7 @@ describe('RootAuthService', () => {
     totp = {
       generateSecret: jest.fn().mockReturnValue('GENERATEDSECRET'),
       keyUri: jest.fn().mockReturnValue('otpauth://totp/fake'),
-      verifyCode: jest.fn().mockReturnValue(false),
+      matchedStep: jest.fn().mockReturnValue(null),
       encryptSecret: jest.fn().mockReturnValue('encrypted-secret'),
       decryptSecret: jest.fn().mockReturnValue('decrypted-secret'),
       generateBackupCodes: jest.fn().mockResolvedValue({
@@ -266,7 +266,7 @@ describe('RootAuthService', () => {
         ...baseAdmin,
         totpSecretEncrypted: 'encrypted-pending',
       });
-      totp.verifyCode.mockReturnValueOnce(true);
+      totp.matchedStep.mockReturnValueOnce(1000);
 
       const result = await service.verifyTotpSetup(
         { token: 'challenge-token', code: '123456' },
@@ -312,7 +312,7 @@ describe('RootAuthService', () => {
         ...baseAdmin,
         totpSecretEncrypted: 'encrypted-pending',
       });
-      totp.verifyCode.mockReturnValueOnce(false);
+      totp.matchedStep.mockReturnValueOnce(null);
 
       await expect(
         service.verifyTotpSetup(
@@ -340,7 +340,7 @@ describe('RootAuthService', () => {
         totpEnabled: true,
         totpSecretEncrypted: 'encrypted-secret',
       });
-      totp.verifyCode.mockReturnValueOnce(true);
+      totp.matchedStep.mockReturnValueOnce(1000);
 
       const result = await service.verifyTotp(
         { token: 'challenge-token', code: '123456' },
@@ -366,7 +366,7 @@ describe('RootAuthService', () => {
         totpSecretEncrypted: 'encrypted-secret',
         backupCodesHashed: '["hashed1","hashed2"]',
       });
-      totp.verifyCode.mockReturnValueOnce(false);
+      totp.matchedStep.mockReturnValueOnce(null);
       totp.verifyBackupCode.mockResolvedValueOnce({
         valid: true,
         remainingJson: '["hashed2"]',
@@ -400,7 +400,7 @@ describe('RootAuthService', () => {
         totpEnabled: true,
         totpSecretEncrypted: 'encrypted-secret',
       });
-      totp.verifyCode.mockReturnValueOnce(false);
+      totp.matchedStep.mockReturnValueOnce(null);
       totp.verifyBackupCode.mockResolvedValueOnce({
         valid: false,
         remainingJson: null,
@@ -452,7 +452,7 @@ describe('RootAuthService', () => {
         totpSecretEncrypted: 'encrypted-secret',
         lockedUntil: new Date(Date.now() + 60_000),
       });
-      totp.verifyCode.mockReturnValue(true);
+      totp.matchedStep.mockReturnValue(1000);
 
       await expect(
         service.verifyTotp(
@@ -470,7 +470,7 @@ describe('RootAuthService', () => {
         totpEnabled: true,
         totpSecretEncrypted: 'encrypted-secret',
       });
-      totp.verifyCode.mockReturnValue(true);
+      totp.matchedStep.mockReturnValue(1000);
 
       await expect(
         service.verifyTotp(
@@ -481,6 +481,39 @@ describe('RootAuthService', () => {
       expect(jwt.signAsync).not.toHaveBeenCalled();
     });
 
+    it('rejects a TOTP code from an already-used time step (replay)', async () => {
+      jwt.verifyAsync.mockResolvedValueOnce(challenge('totp_login'));
+      prisma.rootAdminUser.findUnique.mockResolvedValueOnce({
+        ...baseAdmin,
+        totpEnabled: true,
+        totpSecretEncrypted: 'encrypted-secret',
+      });
+      totp.matchedStep.mockReturnValueOnce(1000);
+      // Step 1000 (or later) was already accepted for this admin.
+      prisma.rootAdminUser.updateMany.mockResolvedValueOnce({ count: 0 });
+
+      await expect(
+        service.verifyTotp(
+          { token: 'challenge-token', code: '123456' },
+          undefined,
+        ),
+      ).rejects.toBeInstanceOf(UnauthorizedException);
+      expect(prisma.rootAdminUser.updateMany).toHaveBeenCalledWith({
+        where: {
+          id: 1,
+          OR: [{ lastTotpStep: null }, { lastTotpStep: { lt: 1000 } }],
+        },
+        data: { lastTotpStep: 1000 },
+      });
+      // Counted as a failed attempt.
+      expect(prisma.rootAdminUser.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: { failedLoginAttempts: { increment: 1 } },
+        }),
+      );
+      expect(jwt.signAsync).not.toHaveBeenCalled();
+    });
+
     it('issues no session when a concurrent request already used the challenge', async () => {
       jwt.verifyAsync.mockResolvedValueOnce(challenge('totp_login'));
       prisma.rootAdminUser.findUnique.mockResolvedValueOnce({
@@ -488,8 +521,11 @@ describe('RootAuthService', () => {
         totpEnabled: true,
         totpSecretEncrypted: 'encrypted-secret',
       });
-      totp.verifyCode.mockReturnValueOnce(true);
-      prisma.rootAdminUser.updateMany.mockResolvedValueOnce({ count: 0 });
+      totp.matchedStep.mockReturnValueOnce(1000);
+      // The code's step is claimed, but the challenge was already used.
+      prisma.rootAdminUser.updateMany
+        .mockResolvedValueOnce({ count: 1 })
+        .mockResolvedValueOnce({ count: 0 });
 
       await expect(
         service.verifyTotp(
@@ -531,11 +567,49 @@ describe('RootAuthService', () => {
 
       const result = await service.refresh('raw-refresh-token');
 
-      expect(prisma.rootRefreshToken.update).toHaveBeenCalledWith({
-        where: { id: 5 },
+      expect(prisma.rootRefreshToken.updateMany).toHaveBeenCalledWith({
+        where: { id: 5, revoked: false },
         data: { revoked: true },
       });
       expect(result.accessToken).toBe('signed.jwt.token');
+    });
+
+    it('revokes every session for the admin when a rotated-out token is reused', async () => {
+      jwt.verifyAsync.mockResolvedValueOnce({ sub: 1, typ: 'refresh' });
+      prisma.rootRefreshToken.findFirst.mockResolvedValueOnce({
+        id: 5,
+        revoked: true,
+        expiresAt: new Date(Date.now() + 60_000),
+      });
+
+      await expect(service.refresh('stolen-token')).rejects.toBeInstanceOf(
+        UnauthorizedException,
+      );
+      expect(prisma.rootRefreshToken.updateMany).toHaveBeenCalledWith({
+        where: { adminId: 1, revoked: false },
+        data: { revoked: true },
+      });
+      expect(audit.log).toHaveBeenCalledWith(1, 'root_refresh_token_reuse');
+      expect(jwt.signAsync).not.toHaveBeenCalled();
+    });
+
+    it('treats losing a concurrent rotation race as reuse', async () => {
+      jwt.verifyAsync.mockResolvedValueOnce({ sub: 1, typ: 'refresh' });
+      prisma.rootRefreshToken.findFirst.mockResolvedValueOnce({
+        id: 5,
+        revoked: false,
+        expiresAt: new Date(Date.now() + 60_000),
+      });
+      prisma.rootRefreshToken.updateMany.mockResolvedValueOnce({ count: 0 });
+
+      await expect(service.refresh('raw-refresh-token')).rejects.toBeInstanceOf(
+        UnauthorizedException,
+      );
+      expect(prisma.rootRefreshToken.updateMany).toHaveBeenLastCalledWith({
+        where: { adminId: 1, revoked: false },
+        data: { revoked: true },
+      });
+      expect(jwt.signAsync).not.toHaveBeenCalled();
     });
 
     it('rejects an expired stored token', async () => {

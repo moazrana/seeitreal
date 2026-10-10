@@ -210,6 +210,11 @@ allow-list, and a global exception filter that never leaks internals to clients.
 - Faster generation: Tripo is asked for at most `TRIPO_FACE_LIMIT` faces (default 150k, the
   optimizer's budget) instead of ~1.4M, and for no PBR maps, which shortens Tripo's job and our
   download and optimization steps.
+- Generation cost guard: each Tripo submit is logged in `model_generations` (task id, user,
+  restaurant, dish), and one user may start at most `TRIPO_DAILY_GENERATIONS_PER_USER` jobs per
+  rolling 24 hours (default 20, `429` beyond that). Dish creation enforces the restaurant's package
+  `maxItems` when it has a subscription. Photo and logo URLs can only be set by the upload
+  endpoints, never by the client.
 
 **3D model realism enhancement** (`documents/3d-model-enhancement.md`) — extends spec §11:
 
