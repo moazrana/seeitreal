@@ -211,8 +211,8 @@ export function RestaurantDetailPage() {
     const confirmed = await confirm({
       title: `Delete "${item.name}"?`,
       message: item.qrIssuedAt
-        ? 'Its photos, 3D model and AR page are removed permanently, and any printed QR code for it will stop working.'
-        : 'Its photos and 3D model are removed permanently.',
+        ? 'Its photos, 3D model and AR page will be removed permanently, and any printed QR code for it will stop working.'
+        : 'Its photos and 3D model will be removed permanently.',
     });
     if (!confirmed) return;
     setError(null);
