@@ -104,6 +104,35 @@ describe('renderItemPage', () => {
     expect(html).toContain('still being prepared');
   });
 
+  it('shows "Powered by seeItReal.com" right under the model when AR-ready', () => {
+    const html = renderItemPage(
+      fakeItem({
+        arStatus: 'live',
+        modelGlbUrl: 'https://cdn.example/model.glb',
+        modelUsdzUrl: 'https://cdn.example/model.usdz',
+      }),
+      'Demo Diner',
+    );
+
+    expect(html).toContain(
+      '<a class="powered-by" href="https://seeitreal.com" target="_blank" rel="noopener">Powered by <strong>seeItReal.com</strong></a>',
+    );
+    expect(html.indexOf('class="powered-by"')).toBeGreaterThan(
+      html.indexOf('</model-viewer>'),
+    );
+  });
+
+  it('omits the powered-by line when there is no model to show', () => {
+    const html = renderItemPage(
+      fakeItem({
+        arStatus: 'pending',
+        photoUrl: 'https://cdn.example/photo.jpg',
+      }),
+      'Demo Diner',
+    );
+    expect(html).not.toContain('class="powered-by"');
+  });
+
   it('shows a placeholder when pending with no photo at all', () => {
     const html = renderItemPage(
       fakeItem({ arStatus: 'pending', photoUrl: null }),
