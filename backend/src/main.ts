@@ -7,8 +7,26 @@ import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  // rawBody: true — needed by StripeWebhookController/SafepayWebhookController
+  // to verify gateway signatures against the exact bytes received (Stripe's
+  // constructEvent/our own HMAC compare both require the raw, unparsed
+  // body; the already-JSON-parsed body can't be re-serialized byte-for-byte
+  // reliably). Nest still parses `req.body` as usual for every other route.
+  const app = await NestFactory.create(AppModule, { rawBody: true });
   const config = app.get(ConfigService);
+
+  // Only when genuinely behind a trusted reverse proxy (nginx) — otherwise
+  // req.ip would trust a client-supplied X-Forwarded-For header, letting
+  // any caller spoof their IP. Needed for IpAllowlistGuard (Root App) to
+  // see real client IPs once deployed; safe to leave off in dev/direct
+  // deployments (default false — see env.validation.ts).
+  if (config.get<boolean>('TRUST_PROXY')) {
+    (
+      app.getHttpAdapter().getInstance() as {
+        set: (key: string, value: unknown) => void;
+      }
+    ).set('trust proxy', 1);
+  }
 
   // Security headers (spec §7.6).
   app.use(helmet());

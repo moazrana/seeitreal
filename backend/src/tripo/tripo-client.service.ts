@@ -4,6 +4,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { fetchWithRetry } from './fetch-retry';
 import type {
   TripoGenerationOptions,
   TripoSubmitResult,
@@ -12,15 +13,27 @@ import type {
 } from './tripo.types';
 
 const DEFAULT_BASE_URL = 'https://openapi.tripo3d.ai/v3';
+const GUIDANCE_KEYS = ['model_seed', 'texture_seed', 'texture_alignment'];
+/** Tripo's multiview endpoint takes exactly this many `files` entries. */
+export const MULTIVIEW_SLOTS = 4;
+
+/** Tripo refused the request (4xx): no task was created and no credit
+ * spent, so the caller may safely try a different request. */
+export class TripoRequestRejectedError extends InternalServerErrorException {
+  constructor() {
+    super('3D model generation could not be started');
+  }
+}
 
 /**
  * Thin wrapper around the Tripo REST API. Server-side only — the API key
  * never leaves this process (spec §11.4: browser → our API → Tripo only,
  * key never reaches the frontend).
  *
- * All Tripo-specific wire format lives in the two private methods below
- * (`buildSubmitBody` / `parseTaskResult`) — see tripo.types.ts for why
- * this needs a live sanity check before production use.
+ * All Tripo-specific wire format lives in the private request-builder /
+ * response-parser methods below (`buildSubmitBody`, `submitMultiviewToModel`'s
+ * body, `parseTaskResult`) — see tripo.types.ts for why this needs a live
+ * sanity check before production use.
  */
 @Injectable()
 export class TripoClientService {
@@ -36,18 +49,81 @@ export class TripoClientService {
     imageUrl: string,
     options: TripoGenerationOptions = {},
   ): Promise<TripoSubmitResult> {
-    const res = await fetch(`${this.baseUrl}/generation/image-to-model`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${this.apiKey()}`,
-      },
-      body: JSON.stringify(this.buildSubmitBody(imageUrl, options)),
-    });
+    return this.submit(
+      'generation/image-to-model',
+      this.buildSubmitBody(imageUrl, options),
+    );
+  }
+
+  /**
+   * Multiview generation (documents/3d-model-enhancement.md §1) — 2-5 input
+   * photos of the same dish reconstructed from real angles instead of the
+   * AI hallucinating unseen sides. `imageUrls` must already be capped to
+   * whatever Tripo's multiview endpoint accepts (the caller,
+   * TripoGenerationService, caps at 4 and picks the most distinct angles
+   * available — we don't capture per-photo angle labels from the owner).
+   *
+   * Endpoint/body shape extrapolated from the single-image call above (same
+   * `file: {type, url}` shape, pluralized to `files: [...]`) — like the
+   * rest of this file's request-builder, this is NOT yet confirmed against
+   * a live task reaching 'success' and needs a real smoke test before
+   * production use; only `submitImageToModel`'s single-image shape has been
+   * confirmed live (see tripo.types.ts).
+   */
+  async submitMultiviewToModel(
+    imageUrls: string[],
+    options: TripoGenerationOptions = {},
+  ): Promise<TripoSubmitResult> {
+    if (imageUrls.length < 2 || imageUrls.length > MULTIVIEW_SLOTS) {
+      throw new InternalServerErrorException(
+        `Multiview generation takes 2-${MULTIVIEW_SLOTS} images`,
+      );
+    }
+    // Confirmed live (2026-10-10): Tripo 400s unless `files` has exactly 4
+    // entries ("files with exactly 4 items are required"). With fewer
+    // photos the remaining slots are sent empty, which Tripo's multiview
+    // API documents as "view not provided".
+    const files: Record<string, string>[] = imageUrls.map((url) => ({
+      type: this.imageTypeFromUrl(url),
+      url,
+    }));
+    while (files.length < MULTIVIEW_SLOTS) files.push({});
+    const body: Record<string, unknown> = {
+      files,
+      model: this.config.get<string>('TRIPO_MODEL_VERSION') ?? 'v3.1-20260211',
+      texture: options.texture ?? true,
+      pbr: options.pbr ?? true,
+    };
+    this.applyOptions(body, options);
+    return this.submit('generation/multiview-to-model', body);
+  }
+
+  private async submit(
+    path: string,
+    body: Record<string, unknown>,
+  ): Promise<TripoSubmitResult> {
+    let res = await this.post(path, body);
+    // A 400 creates no task, so it's safe to retry once without the
+    // optional guidance parameters if this API version doesn't know them.
+    const guidance = GUIDANCE_KEYS.filter((key) => key in body);
+    if (res.status === 400 && guidance.length > 0) {
+      const bodyText = await res.text().catch(() => '');
+      this.logger.warn(
+        `Tripo rejected guidance parameters (${guidance.join(', ')}) on ${path}: ${bodyText} — retrying without them`,
+      );
+      const stripped = { ...body };
+      for (const key of guidance) delete stripped[key];
+      res = await this.post(path, stripped);
+    }
 
     if (!res.ok) {
       const bodyText = await res.text().catch(() => '');
-      this.logger.error(`Tripo submit failed: ${res.status} ${bodyText}`);
+      this.logger.error(
+        `Tripo submit (${path}) failed: ${res.status} ${bodyText}`,
+      );
+      if (res.status >= 400 && res.status < 500) {
+        throw new TripoRequestRejectedError();
+      }
       throw new InternalServerErrorException(
         '3D model generation could not be started',
       );
@@ -57,23 +133,39 @@ export class TripoClientService {
     const taskId = json.data?.task_id;
     if (!taskId) {
       this.logger.error(
-        `Tripo submit returned no task_id: ${JSON.stringify(json)}`,
+        `Tripo submit (${path}) returned no task_id: ${JSON.stringify(json)}`,
       );
       throw new InternalServerErrorException(
         '3D model generation could not be started',
       );
     }
 
-    this.logger.log(`Submitted Tripo task ${taskId}`);
+    this.logger.log(`Submitted Tripo task ${taskId} (${path})`);
     return { taskId };
   }
 
-  async getTaskStatus(taskId: string): Promise<TripoTaskResult> {
-    const res = await fetch(
-      `${this.baseUrl}/tasks/${encodeURIComponent(taskId)}`,
+  private post(path: string, body: Record<string, unknown>) {
+    // Not idempotent (each accepted submit is a paid task), so only
+    // connect-phase failures are retried.
+    return fetchWithRetry(
+      `${this.baseUrl}/${path}`,
       {
-        headers: { Authorization: `Bearer ${this.apiKey()}` },
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${this.apiKey()}`,
+        },
+        body: JSON.stringify(body),
       },
+      { idempotent: false },
+    );
+  }
+
+  async getTaskStatus(taskId: string): Promise<TripoTaskResult> {
+    const res = await fetchWithRetry(
+      `${this.baseUrl}/tasks/${encodeURIComponent(taskId)}`,
+      { headers: { Authorization: `Bearer ${this.apiKey()}` } },
+      { idempotent: true },
     );
 
     if (!res.ok) {
@@ -119,16 +211,42 @@ export class TripoClientService {
       texture: options.texture ?? true,
       pbr: options.pbr ?? true,
     };
-    if (options.callbackUrl) {
-      body.callback_url = options.callbackUrl;
-    }
+    this.applyOptions(body, options);
     return body;
   }
 
-  /** Declares the *actual* format of the bytes at imageUrl — our own
-   * storage always re-encodes uploads to webp (spec §7.5 EXIF-strip step).
-   * Some third-party docs claim the URL-based `file.type` only accepts
-   * jpg/png, but lying about the declared type risks a decode mismatch if
+  private applyOptions(
+    body: Record<string, unknown>,
+    options: TripoGenerationOptions,
+  ): void {
+    if (options.textureQuality) {
+      body.texture_quality = options.textureQuality;
+    }
+    if (options.faceLimit) {
+      body.face_limit = options.faceLimit;
+    }
+    if (options.callbackUrl) {
+      body.callback_url = options.callbackUrl;
+    }
+    // Regeneration guidance (see regeneration-guidance.ts). Names follow
+    // Tripo's documented image/multiview-to-model parameters; submit()
+    // drops them and retries once if this API version rejects them.
+    if (options.modelSeed !== undefined) {
+      body.model_seed = options.modelSeed;
+    }
+    if (options.textureSeed !== undefined) {
+      body.texture_seed = options.textureSeed;
+    }
+    if (options.textureAlignment) {
+      body.texture_alignment = options.textureAlignment;
+    }
+  }
+
+  /** Declares the *actual* format of the bytes at imageUrl — dish photos
+   * are re-encoded to JPEG (documents/TASK-image-optimization.md); photos
+   * uploaded before that change are WebP. Some third-party docs claim the
+   * URL-based `file.type` only accepts jpg/png — one reason new photos are
+   * JPEG — but lying about the declared type risks a decode mismatch if
    * Tripo trusts this field over sniffing the bytes; pass the true value
    * and let a real 400 (if any) name the accepted enum, same as the
    * file-shape bug this replaced — not yet confirmed against a live task

@@ -1,0 +1,370 @@
+/* BillingPage — scoped under a CSS module, same convention as
+ * RestaurantDetailPage.module.css. Reuses the tokens defined on :root in
+ * ../index.css, plus the shared .status-banner/.banner-warning/
+ * .banner-expired global classes (also used by RestaurantDetailPage's
+ * banner) so the warning reads identically wherever it shows up. */
+
+/* ---------- Hero ---------- */
+
+.hero {
+  position: relative;
+  overflow: clip;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  padding: 1.75rem 1.75rem 1.5rem;
+  margin-bottom: 2.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.heroGlow {
+  position: absolute;
+  width: 320px;
+  height: 320px;
+  border-radius: 50%;
+  filter: blur(80px);
+  opacity: 0.28;
+  pointer-events: none;
+  top: -140px;
+  right: -80px;
+  background: var(--blue);
+}
+
+.backLink {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  text-decoration: none;
+  align-self: flex-start;
+}
+
+.backLink:hover {
+  color: var(--text);
+}
+
+.eyebrow {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  padding: 0.25rem 0.65rem;
+  border-radius: 999px;
+  align-self: flex-start;
+}
+
+.eyebrowDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--grad);
+}
+
+.heroTitle {
+  position: relative;
+  margin: 0;
+  font-size: clamp(1.6rem, 3.4vw, 2.4rem);
+}
+
+.checkoutNotice {
+  position: relative;
+  margin: 0;
+  color: var(--accent-strong);
+  font-size: 0.9rem;
+}
+
+.noSubscription {
+  position: relative;
+  margin: 0;
+  color: var(--text-muted);
+}
+
+.currentPlan {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1.5rem;
+  border-top: 1px solid var(--border);
+  padding-top: 1rem;
+  margin-top: 0.25rem;
+}
+
+.currentPlanLabel {
+  display: block;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 0.15rem;
+}
+
+.currentPlanName,
+.currentPlanValue {
+  display: block;
+  font-family: var(--font-display);
+  font-weight: 600;
+}
+
+.planLinks {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-left: auto;
+}
+
+.changePlanLink {
+  color: var(--accent-strong);
+  font-weight: 600;
+  font-size: 0.9rem;
+  text-decoration: none;
+}
+
+.changePlanLink:hover {
+  text-decoration: underline;
+}
+
+.cancelLink {
+  background: none;
+  border: none;
+  color: var(--danger);
+  font-size: 0.85rem;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.cancelLink:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ---------- Sections ---------- */
+
+.section {
+  margin-bottom: 2.5rem;
+}
+
+.sectionHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.9rem;
+}
+
+.sectionHead h2 {
+  margin: 0;
+}
+
+.checkoutForm {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: flex-end;
+  margin-bottom: 1.25rem;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.field input {
+  min-width: 140px;
+}
+
+.promoRow {
+  display: flex;
+  gap: 0.6rem;
+  align-items: flex-end;
+}
+
+.promoError {
+  color: var(--danger);
+  font-size: 0.85rem;
+  margin: 0;
+}
+
+.promoApplied {
+  color: var(--accent-strong);
+  font-size: 0.85rem;
+  margin: 0;
+}
+
+/* ---------- Plan cards ---------- */
+
+.grid {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 1.1rem;
+}
+
+.planCard {
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.planCard[data-current] {
+  border-color: var(--accent-strong);
+  box-shadow: 0 0 0 1px var(--accent-strong);
+}
+
+.planName {
+  margin: 0;
+  font-family: var(--font-display);
+}
+
+.planPrice {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.5rem;
+  font-weight: 600;
+  background: var(--grad-text);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.planInterval {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  -webkit-text-fill-color: var(--text-muted);
+}
+
+.planLimit {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.planCurrentBadge {
+  align-self: flex-start;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--accent-strong);
+  border: 1px solid var(--tint-teal-line);
+  background: var(--tint-teal-bg);
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+}
+
+.actionBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 0.45rem 0.9rem;
+  cursor: pointer;
+}
+
+.actionBtn:hover:not(:disabled) {
+  border-color: var(--accent-strong);
+  transform: translateY(-1px);
+}
+
+.actionBtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.actionBtnPrimary {
+  border-color: transparent;
+  background: var(--grad);
+  color: var(--on-grad);
+  font-weight: 600;
+  width: 100%;
+}
+
+/* ---------- Invoices ---------- */
+
+.emptyCard {
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-lg);
+  padding: 2.5rem 1.5rem;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.emptyCard strong {
+  display: block;
+  color: var(--text);
+  font-family: var(--font-display);
+  font-size: 1.1rem;
+  margin-bottom: 0.35rem;
+}
+
+.invoiceTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.invoiceTable th {
+  text-align: left;
+  color: var(--text-muted);
+  font-weight: 500;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.invoiceTable td {
+  padding: 0.6rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.invoiceStatus {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  border: 1px solid transparent;
+  background: var(--surface-2);
+  color: var(--text-muted);
+}
+
+.invoiceStatus[data-status='paid'] {
+  background: var(--tint-teal-bg);
+  color: var(--tint-teal-text);
+  border-color: var(--tint-teal-line);
+}
+
+.invoiceStatus[data-status='failed'] {
+  background: var(--danger-bg);
+  color: var(--danger);
+  border-color: var(--danger-line);
+}

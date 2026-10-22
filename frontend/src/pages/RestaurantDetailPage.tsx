@@ -1,69 +1,174 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ChangeEvent, FormEvent } from 'react';
-import { useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
+import { billingApi } from '../api/billing';
+import { ApiError } from '../api/client';
 import { menuApi } from '../api/menu';
 import { restaurantsApi } from '../api/restaurants';
-import type { MenuCategory, MenuItem, Restaurant } from '../api/types';
+import type { MenuCategory, MenuItem, Restaurant, Subscription } from '../api/types';
 import { AppShell } from '../components/AppShell';
+import { CuisineTabs } from '../components/CuisineTabs';
 import { ErrorBanner } from '../components/ErrorBanner';
+import { PhotoCaptureGuide } from '../components/PhotoCaptureGuide';
+import { QrCodeModal } from '../components/QrCodeModal';
+import { useConfirm } from '../hooks/useConfirm';
+import { useFeedback } from '../hooks/useFeedback';
+import { useLiveRefresh } from '../hooks/useLiveRefresh';
+import {
+  formatDimensions,
+  inchInputToMm,
+  MAX_DIMENSION_IN,
+  MIN_DIMENSION_IN,
+  mmToInchInput,
+} from '../lib/dimensions';
+import { compressDishPhotos } from '../lib/compressImage';
+import { cuisineStyle, cuisineTabId, matchesCuisine } from '../lib/cuisine';
+import type { CuisineFilter, CuisineTab } from '../lib/cuisine';
 import { errorMessage } from '../lib/errors';
+import { itemArViewerUrl } from '../lib/publicUrls';
 import { StatusBadge } from '../components/StatusBadge';
+import s from './RestaurantDetailPage.module.css';
 
-function formatPrice(price: string): string {
-  const n = Number(price);
-  return Number.isFinite(n) ? `$${n.toFixed(2)}` : price;
+// Up to 5 input photos per dish (documents/3d-model-enhancement.md §1) —
+// mirrors the server-side MAX_ITEM_PHOTOS. Client-side check here is UX
+// only; the server is the authoritative limit.
+const MAX_ITEM_PHOTOS = 5;
+
+// Live refresh cadence: quick while a model is being produced or awaiting
+// QA (the owner is watching for it to land), relaxed otherwise. Two
+// requests per tick keeps even the fast rate well inside the API's
+// per-user throttle.
+const FAST_REFRESH_MS = 5_000;
+const IDLE_REFRESH_MS = 20_000;
+
+const ITEMS_PANEL_ID = 'cuisine-items-panel';
+
+function isConflict(err: unknown): boolean {
+  return err instanceof ApiError && err.status === 409;
+}
+
+function isInProgress(item: MenuItem): boolean {
+  return item.arStatus === 'generating' || item.arStatus === 'qa';
 }
 
 export function RestaurantDetailPage() {
-  const { id } = useParams<{ id: string }>();
-  const restaurantId = Number(id);
+  const { slug: restaurantSlug = '' } = useParams<{ slug: string }>();
 
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
   const [categories, setCategories] = useState<MenuCategory[]>([]);
   const [items, setItems] = useState<MenuItem[]>([]);
+  const [subscription, setSubscription] = useState<Subscription | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busyItemId, setBusyItemId] = useState<number | null>(null);
+  const [qrItem, setQrItem] = useState<MenuItem | null>(null);
+  const [cuisineFilter, setCuisineFilter] = useState<CuisineFilter>('all');
+  const { confirm, confirmDialog } = useConfirm();
+  const { showFeedback, feedbackDialog } = useFeedback();
+  // Monotonic id per data load, so a slow response can never overwrite
+  // newer state (e.g. a background refresh landing after a delete).
+  const loadSeq = useRef(0);
 
   const [categoryName, setCategoryName] = useState('');
   const [itemName, setItemName] = useState('');
-  const [itemPrice, setItemPrice] = useState('');
   const [itemCategoryId, setItemCategoryId] = useState('');
+  const [itemWidthIn, setItemWidthIn] = useState('');
+  const [itemHeightIn, setItemHeightIn] = useState('');
+  const [itemLengthIn, setItemLengthIn] = useState('');
 
   function loadAll() {
+    const seq = ++loadSeq.current;
     Promise.all([
-      restaurantsApi.get(restaurantId),
-      menuApi.listCategories(restaurantId),
-      menuApi.listItems(restaurantId),
+      restaurantsApi.get(restaurantSlug),
+      menuApi.listCategories(restaurantSlug),
+      menuApi.listItems(restaurantSlug),
+      billingApi.getSubscription(restaurantSlug),
     ])
-      .then(([r, c, i]) => {
+      .then(([r, c, i, sub]) => {
+        if (seq !== loadSeq.current) return;
         setRestaurant(r);
         setCategories(c);
         setItems(i);
+        setSubscription(sub);
       })
       .catch((err: unknown) => setError(errorMessage(err)));
   }
 
-  useEffect(loadAll, [restaurantId]);
+  useEffect(loadAll, [restaurantSlug]);
+
+  // Background refresh: dish statuses (model generated → QA → live) and
+  // subscription state update on screen without a reload. Errors are left
+  // to the next tick rather than flashing the error banner.
+  const refreshLive = useCallback(async () => {
+    const seq = ++loadSeq.current;
+    const [i, sub] = await Promise.all([
+      menuApi.listItems(restaurantSlug),
+      billingApi.getSubscription(restaurantSlug),
+    ]);
+    if (seq !== loadSeq.current) return;
+    setItems(i);
+    setSubscription(sub);
+  }, [restaurantSlug]);
+
+  useLiveRefresh(refreshLive, {
+    intervalMs: items.some(isInProgress) ? FAST_REFRESH_MS : IDLE_REFRESH_MS,
+    enabled: restaurant !== null,
+  });
 
   async function handleAddCategory(e: FormEvent) {
     e.preventDefault();
     setError(null);
     try {
-      await menuApi.createCategory(restaurantId, { name: categoryName });
+      await menuApi.createCategory(restaurantSlug, { name: categoryName });
       setCategoryName('');
       loadAll();
     } catch (err) {
-      setError(errorMessage(err));
+      if (isConflict(err)) {
+        showFeedback({
+          tone: 'warning',
+          title: 'Cuisine type already exists',
+          message: `"${categoryName.trim()}" is already one of your cuisine types — pick it from the list instead.`,
+        });
+      } else {
+        setError(errorMessage(err));
+      }
     }
   }
 
-  async function handleDeleteCategory(categoryId: number) {
+  function warnCuisineInUse(category: MenuCategory, dishCount?: number) {
+    const dishes =
+      dishCount === undefined ? 'dishes' : `${dishCount} dish${dishCount === 1 ? '' : 'es'}`;
+    showFeedback({
+      tone: 'warning',
+      title: `"${category.name}" is still in use`,
+      message: `Every dish needs a cuisine type, and ${dishes} still use this one. Delete those dishes first.`,
+    });
+  }
+
+  async function handleDeleteCategory(category: MenuCategory) {
+    // Every dish needs a cuisine type, so the API refuses (409) to delete
+    // one in use — say so up front instead of after a confirm.
+    const dishCount = items.filter((item) => item.categoryId === category.id).length;
+    if (dishCount > 0) {
+      warnCuisineInUse(category, dishCount);
+      return;
+    }
+    const confirmed = await confirm({
+      title: `Delete "${category.name}"?`,
+      message: 'This cuisine type has no dishes.',
+    });
+    if (!confirmed) return;
     setError(null);
     try {
-      await menuApi.deleteCategory(restaurantId, categoryId);
+      await menuApi.deleteCategory(restaurantSlug, category.id);
       loadAll();
     } catch (err) {
-      setError(errorMessage(err));
+      if (isConflict(err)) {
+        // A dish was added to it since the list last refreshed.
+        warnCuisineInUse(category);
+        loadAll();
+      } else {
+        setError(errorMessage(err));
+      }
     }
   }
 
@@ -71,38 +176,100 @@ export function RestaurantDetailPage() {
     e.preventDefault();
     setError(null);
     try {
-      await menuApi.createItem(restaurantId, {
+      await menuApi.createItem(restaurantSlug, {
         name: itemName,
-        price: Number(itemPrice),
-        categoryId: itemCategoryId ? Number(itemCategoryId) : undefined,
+        categoryId: Number(itemCategoryId),
+        widthMm: inchInputToMm(itemWidthIn),
+        heightMm: inchInputToMm(itemHeightIn),
+        lengthMm: inchInputToMm(itemLengthIn),
+      });
+      showFeedback({
+        tone: 'success',
+        title: 'Dish added',
+        message: `"${itemName.trim()}" is on your menu. Upload photos to generate its 3D model.`,
       });
       setItemName('');
-      setItemPrice('');
       setItemCategoryId('');
+      setItemWidthIn('');
+      setItemHeightIn('');
+      setItemLengthIn('');
       loadAll();
     } catch (err) {
-      setError(errorMessage(err));
+      if (isConflict(err)) {
+        showFeedback({
+          tone: 'warning',
+          title: 'Already on your menu',
+          message: `A dish named "${itemName.trim()}" already exists in this restaurant. Give it a different name.`,
+        });
+      } else {
+        setError(errorMessage(err));
+      }
     }
   }
 
-  async function handleDeleteItem(itemId: number) {
+  async function handleDeleteItem(item: MenuItem) {
+    const confirmed = await confirm({
+      title: `Delete "${item.name}"?`,
+      message: item.qrIssuedAt
+        ? 'Its photos, 3D model and AR page will be removed permanently, and any printed QR code for it will stop working.'
+        : 'Its photos and 3D model will be removed permanently.',
+    });
+    if (!confirmed) return;
     setError(null);
     try {
-      await menuApi.deleteItem(restaurantId, itemId);
+      await menuApi.deleteItem(restaurantSlug, item.publicSlug);
       loadAll();
     } catch (err) {
       setError(errorMessage(err));
     }
   }
 
-  async function handlePhotoChange(itemId: number, e: ChangeEvent<HTMLInputElement>) {
+  async function handlePhotosChange(item: MenuItem, e: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = ''; // allow re-selecting the same file(s) later
+    if (files.length === 0) return;
+    setError(null);
+    setBusyItemId(item.id);
+    try {
+      const optimized = await compressDishPhotos(files);
+      await menuApi.uploadPhotos(restaurantSlug, item.publicSlug, optimized);
+      loadAll();
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusyItemId(null);
+    }
+  }
+
+  async function handleRemovePhoto(item: MenuItem, photoId: number) {
+    const confirmed = await confirm({
+      title: 'Remove this photo?',
+      message: item.modelGlbUrl
+        ? "The dish's current 3D model and QR code are not affected."
+        : 'You can upload another photo afterwards.',
+      confirmLabel: 'Remove',
+    });
+    if (!confirmed) return;
+    setError(null);
+    setBusyItemId(item.id);
+    try {
+      await menuApi.deletePhoto(restaurantSlug, item.publicSlug, photoId);
+      loadAll();
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusyItemId(null);
+    }
+  }
+
+  async function handleModelChange(item: MenuItem, e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
-    e.target.value = ''; // allow re-selecting the same file later
+    e.target.value = '';
     if (!file) return;
     setError(null);
-    setBusyItemId(itemId);
+    setBusyItemId(item.id);
     try {
-      await menuApi.uploadPhoto(restaurantId, itemId, file);
+      await menuApi.uploadModel(restaurantSlug, item.publicSlug, file);
       loadAll();
     } catch (err) {
       setError(errorMessage(err));
@@ -111,11 +278,18 @@ export function RestaurantDetailPage() {
     }
   }
 
-  async function handleGenerateModel(itemId: number) {
+  async function handleSaveDimensions(item: MenuItem, e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
     setError(null);
-    setBusyItemId(itemId);
+    const form = new FormData(e.currentTarget);
+    const field = (name: string) => String(form.get(name) ?? '');
+    setBusyItemId(item.id);
     try {
-      await menuApi.generateModel(restaurantId, itemId);
+      await menuApi.updateItem(restaurantSlug, item.publicSlug, {
+        widthMm: inchInputToMm(field('widthIn')),
+        heightMm: inchInputToMm(field('heightIn')),
+        lengthMm: inchInputToMm(field('lengthIn')),
+      });
       loadAll();
     } catch (err) {
       setError(errorMessage(err));
@@ -123,78 +297,334 @@ export function RestaurantDetailPage() {
       setBusyItemId(null);
     }
   }
+
+  async function handleGenerateModel(item: MenuItem) {
+    setError(null);
+    setBusyItemId(item.id);
+    try {
+      await menuApi.generateModel(restaurantSlug, item.publicSlug);
+      loadAll();
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusyItemId(null);
+    }
+  }
+
+  const liveCount = items.filter((item) => item.arStatus === 'live').length;
+
+  // A deleted cuisine type can't stay selected.
+  const activeCuisine: CuisineFilter =
+    typeof cuisineFilter === 'number' && !categories.some((c) => c.id === cuisineFilter)
+      ? 'all'
+      : cuisineFilter;
+  const cuisineTabs: CuisineTab[] = [
+    { value: 'all', label: 'All', count: items.length },
+    ...categories.map((c) => ({
+      value: c.id,
+      label: c.name,
+      count: items.filter((item) => item.categoryId === c.id).length,
+    })),
+  ];
+  const cuisineNames = new Map(categories.map((c) => [c.id, c.name]));
+  const visibleItems = items.filter((item) => matchesCuisine(item, activeCuisine));
 
   return (
     <AppShell>
-      <h1>{restaurant?.name ?? 'Restaurant'}</h1>
+      {confirmDialog}
+      {feedbackDialog}
+      {qrItem && (
+        <QrCodeModal
+          title={qrItem.name}
+          url={itemArViewerUrl(qrItem.publicSlug)}
+          notice={
+            qrItem.arStatus === 'live'
+              ? undefined
+              : "This dish's 3D model is being updated — diners who scan see a “coming soon” note until it's live again."
+          }
+          onClose={() => setQrItem(null)}
+        />
+      )}
       <ErrorBanner message={error} />
 
-      <section>
-        <h2>Categories</h2>
-        <ul className="chip-list">
+      <div className={s.hero}>
+        <div className={s.heroGlow} aria-hidden="true" />
+        <div className={s.heroLinks}>
+          <Link to="/restaurants" className={`${s.backLink} ${s.dashboardLink}`}>
+            ← All restaurants
+          </Link>
+          <Link to={`/restaurants/${restaurantSlug}/billing`} className={s.backLink}>
+            Billing →
+          </Link>
+        </div>
+        {subscription?.status === 'past_due' && subscription.graceUntil && (
+          <div className={`status-banner banner-warning ${s.bannerSpacing}`}>
+            <strong>Payment failed.</strong>{' '}
+            <Link to={`/restaurants/${restaurantSlug}/billing`}>Update your payment method</Link> to
+            keep your dish links online.
+          </div>
+        )}
+        {subscription?.status === 'expired' && (
+          <div className={`status-banner banner-expired ${s.bannerSpacing}`}>
+            <strong>Your menus are offline.</strong>{' '}
+            <Link to={`/restaurants/${restaurantSlug}/billing`}>Reactivate now</Link> to bring your
+            dish links back — nothing was deleted.
+          </div>
+        )}
+        <div className={s.heroTop}>
+          <div>
+            <span className={s.eyebrow}>
+              <span className={s.eyebrowDot} aria-hidden="true" />
+              Restaurant
+            </span>
+            <h1 className={s.heroTitle}>{restaurant?.name ?? 'Loading…'}</h1>
+            {restaurant && <p className={s.heroSlug}>/{restaurant.slug}</p>}
+          </div>
+          <div className={s.statRow}>
+            <div className={s.statCard}>
+              <span className={s.statValue}>{items.length}</span>
+              <span className={s.statLabel}>Dishes</span>
+            </div>
+            <div className={s.statCard}>
+              <span className={s.statValue}>{liveCount}</span>
+              <span className={s.statLabel}>Live in AR</span>
+            </div>
+            <div className={s.statCard}>
+              <span className={s.statValue}>{categories.length}</span>
+              <span className={s.statLabel}>Cuisine types</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <section className={s.section}>
+        <div className={s.sectionHead}>
+          <h2>Cuisine Types</h2>
+        </div>
+        <p className={s.sectionHint}>
+          Add your dish categories here — e.g. BBQ, Karahi, Desserts, Drinks.
+        </p>
+        <div className={s.categoryRow}>
           {categories.map((c) => (
-            <li key={c.id} className="chip">
+            <span key={c.id} className={s.categoryChip} style={cuisineStyle(c.id)}>
+              <span className={s.categoryChipDot} aria-hidden="true" />
               {c.name}
-              <button type="button" className="chip-remove" onClick={() => void handleDeleteCategory(c.id)}>
+              <button
+                type="button"
+                className={s.categoryChipRemove}
+                onClick={() => void handleDeleteCategory(c)}
+                aria-label={`Delete cuisine type ${c.name}`}
+              >
                 ×
               </button>
-            </li>
+            </span>
           ))}
-        </ul>
-        <form className="inline-form-row" onSubmit={handleAddCategory}>
-          <input
-            placeholder="New category name"
-            value={categoryName}
-            onChange={(e) => setCategoryName(e.target.value)}
-            required
-          />
-          <button type="submit">Add category</button>
-        </form>
+          <form className={s.categoryAddForm} onSubmit={handleAddCategory}>
+            <input
+              placeholder="New cuisine type…"
+              aria-label="New cuisine type"
+              maxLength={100}
+              value={categoryName}
+              onChange={(e) => setCategoryName(e.target.value)}
+              required
+            />
+            <button type="submit">+ Add</button>
+          </form>
+        </div>
       </section>
 
-      <section>
-        <h2>Menu items</h2>
+      <section className={s.section}>
+        <div className={s.sectionHead}>
+          <h2>Menu items</h2>
+          <span className={s.sectionCount}>
+            {items.length} dish{items.length === 1 ? '' : 'es'}
+          </span>
+        </div>
+        <PhotoCaptureGuide />
+        {items.length > 0 && categories.length > 0 && (
+          <CuisineTabs
+            tabs={cuisineTabs}
+            active={activeCuisine}
+            onChange={setCuisineFilter}
+            panelId={ITEMS_PANEL_ID}
+          />
+        )}
         {items.length === 0 ? (
-          <p className="empty-state">No items yet — add your first dish below.</p>
+          <div className={s.emptyCard}>
+            <strong>No dishes yet</strong>
+            Add your first dish below to start generating AR models.
+          </div>
         ) : (
-          <ul className="item-list">
-            {items.map((item) => (
-              <li key={item.id} className="item-card">
-                <div className="item-card-photo">
+          <ul
+            className={s.grid}
+            id={ITEMS_PANEL_ID}
+            {...(categories.length > 0
+              ? { role: 'tabpanel', 'aria-labelledby': cuisineTabId(activeCuisine) }
+              : {})}
+          >
+            {visibleItems.length === 0 && (
+              <li className={s.emptyCard}>
+                <strong>No dishes in this cuisine type yet</strong>
+                Pick it as the cuisine type when adding a dish below.
+              </li>
+            )}
+            {visibleItems.map((item) => (
+              <li
+                key={item.id}
+                className={s.dishCard}
+                data-status={item.arStatus}
+                style={cuisineStyle(item.categoryId)}
+              >
+                <div className={s.dishPhotoWrap}>
+                  {/* Cuisine "spine": a colour-coded index tab down the
+                      photo's edge, matching the cuisine's tab and chip. */}
+                  <span className={s.cuisineSpine}>
+                    <span className={s.visuallyHidden}>Cuisine type: </span>
+                    {cuisineNames.get(item.categoryId) ?? 'Cuisine'}
+                  </span>
                   {item.photoUrl ? (
                     <img src={item.photoUrl} alt={item.name} />
                   ) : (
-                    <div className="item-card-photo-placeholder">No photo</div>
+                    <div className={s.dishPhotoPlaceholder}>No photo</div>
                   )}
-                </div>
-                <div className="item-card-body">
-                  <div className="item-card-title-row">
-                    <strong>{item.name}</strong>
+                  <span className={s.dishStatusPin}>
                     <StatusBadge status={item.arStatus} />
-                  </div>
-                  <div className="muted">{formatPrice(item.price)}</div>
+                  </span>
+                </div>
+                <div className={s.dishBody}>
+                  <h3 className={s.dishName}>{item.name}</h3>
+                  <p className={s.dishDims}>
+                    {formatDimensions(item) ?? 'No dimensions — shown at 10-inch plate size'}
+                  </p>
+                  <form
+                    className={s.dishDimForm}
+                    onSubmit={(e) => void handleSaveDimensions(item, e)}
+                  >
+                    <input
+                      name="widthIn"
+                      type="number"
+                      min={MIN_DIMENSION_IN}
+                      max={MAX_DIMENSION_IN}
+                      step={0.1}
+                      placeholder="Width (in)"
+                      aria-label="Width in inches"
+                      defaultValue={mmToInchInput(item.widthMm)}
+                      disabled={busyItemId === item.id}
+                    />
+                    <input
+                      name="heightIn"
+                      type="number"
+                      min={MIN_DIMENSION_IN}
+                      max={MAX_DIMENSION_IN}
+                      step={0.1}
+                      placeholder="Height (in)"
+                      aria-label="Height in inches"
+                      defaultValue={mmToInchInput(item.heightMm)}
+                      disabled={busyItemId === item.id}
+                    />
+                    <input
+                      name="lengthIn"
+                      type="number"
+                      min={MIN_DIMENSION_IN}
+                      max={MAX_DIMENSION_IN}
+                      step={0.1}
+                      placeholder="Length (in)"
+                      aria-label="Length in inches"
+                      defaultValue={mmToInchInput(item.lengthMm)}
+                      disabled={busyItemId === item.id}
+                    />
+                    <button type="submit" className="link-button" disabled={busyItemId === item.id}>
+                      Save size
+                    </button>
+                  </form>
                   {item.qaNote && <div className="qa-note">{item.qaNote}</div>}
-                  <div className="item-card-actions">
-                    <label className="link-button">
-                      {item.photoUrl ? 'Replace photo' : 'Upload photo'}
+                  {item.photos.length > 0 && (
+                    <ul className="photo-thumb-strip">
+                      {item.photos.map((photo) => (
+                        <li key={photo.id} className="photo-thumb">
+                          <img src={photo.url} alt="" />
+                          <button
+                            type="button"
+                            className="photo-thumb-remove"
+                            disabled={busyItemId === item.id}
+                            title="Remove this photo"
+                            onClick={() => void handleRemovePhoto(item, photo.id)}
+                          >
+                            ×
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  <div className={s.dishActions}>
+                    <label
+                      className={s.actionBtn}
+                      title={
+                        item.photos.length >= MAX_ITEM_PHOTOS
+                          ? `A dish can have at most ${MAX_ITEM_PHOTOS} photos`
+                          : undefined
+                      }
+                    >
+                      {item.photos.length > 0 ? 'Add more photos' : 'Upload photos'}
                       <input
                         type="file"
                         accept="image/jpeg,image/png,image/webp"
+                        multiple
                         hidden
-                        disabled={busyItemId === item.id}
-                        onChange={(e) => void handlePhotoChange(item.id, e)}
+                        disabled={busyItemId === item.id || item.photos.length >= MAX_ITEM_PHOTOS}
+                        onChange={(e) => void handlePhotosChange(item, e)}
                       />
                     </label>
                     <button
                       type="button"
-                      className="link-button"
-                      disabled={!item.photoUrl || item.arStatus !== 'pending' || busyItemId === item.id}
-                      onClick={() => void handleGenerateModel(item.id)}
-                      title={!item.photoUrl ? 'Upload a photo first' : undefined}
+                      className={`${s.actionBtn} ${s.actionBtnPrimary}`}
+                      disabled={
+                        !item.photoUrl || item.arStatus !== 'pending' || busyItemId === item.id
+                      }
+                      onClick={() => void handleGenerateModel(item)}
+                      title={
+                        !item.photoUrl
+                          ? 'Upload a photo first'
+                          : item.photos.length >= 2
+                            ? `Generates from all ${Math.min(item.photos.length, 4)} photos (multiview)`
+                            : undefined
+                      }
                     >
                       Generate 3D model
                     </button>
-                    <button type="button" className="link-button danger" onClick={() => void handleDeleteItem(item.id)}>
+                    <label
+                      className={s.actionBtn}
+                      title="Upload a finished .glb instead of generating one (hero dishes)"
+                    >
+                      Upload finished GLB
+                      <input
+                        type="file"
+                        accept=".glb,model/gltf-binary"
+                        hidden
+                        disabled={item.arStatus !== 'pending' || busyItemId === item.id}
+                        onChange={(e) => void handleModelChange(item, e)}
+                      />
+                    </label>
+                    {item.arStatus === 'live' && (
+                      <a
+                        className={s.actionBtn}
+                        href={itemArViewerUrl(item.publicSlug)}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        View in AR
+                      </a>
+                    )}
+                    {(item.qrIssuedAt || item.arStatus === 'live') && (
+                      <button type="button" className={s.actionBtn} onClick={() => setQrItem(item)}>
+                        Show QR code
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className={`${s.actionBtn} ${s.actionBtnDanger}`}
+                      onClick={() => void handleDeleteItem(item)}
+                    >
                       Delete
                     </button>
                   </div>
@@ -204,35 +634,83 @@ export function RestaurantDetailPage() {
           </ul>
         )}
 
-        <form className="inline-form" onSubmit={handleAddItem}>
-          <h3>Add a dish</h3>
-          <label>
-            Name
-            <input value={itemName} onChange={(e) => setItemName(e.target.value)} required />
-          </label>
-          <label>
-            Price
-            <input
-              type="number"
-              min="0.01"
-              step="0.01"
-              value={itemPrice}
-              onChange={(e) => setItemPrice(e.target.value)}
-              required
-            />
-          </label>
-          <label>
-            Category
-            <select value={itemCategoryId} onChange={(e) => setItemCategoryId(e.target.value)}>
-              <option value="">None</option>
-              {categories.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
+        <form className={s.addDishCard} onSubmit={handleAddItem}>
+          <h3 className={s.addDishHead}>
+            <span className={s.addDishHeadIcon} aria-hidden="true">
+              +
+            </span>
+            Add a dish
+          </h3>
+          <div className={s.addDishGrid}>
+            <label>
+              Name
+              <input value={itemName} onChange={(e) => setItemName(e.target.value)} required />
+            </label>
+            <label>
+              Cuisine type
+              <select
+                value={itemCategoryId}
+                onChange={(e) => setItemCategoryId(e.target.value)}
+                required
+              >
+                <option value="" disabled>
+                  {categories.length === 0 ? 'Add a cuisine type first' : 'Choose…'}
                 </option>
-              ))}
-            </select>
-          </label>
-          <button type="submit">Add dish</button>
+                {categories.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Width (in)
+              <input
+                type="number"
+                min={MIN_DIMENSION_IN}
+                max={MAX_DIMENSION_IN}
+                step={0.1}
+                value={itemWidthIn}
+                onChange={(e) => setItemWidthIn(e.target.value)}
+                placeholder="e.g. 10 for a 10-inch plate"
+              />
+            </label>
+            <label>
+              Height (in)
+              <input
+                type="number"
+                min={MIN_DIMENSION_IN}
+                max={MAX_DIMENSION_IN}
+                step={0.1}
+                value={itemHeightIn}
+                onChange={(e) => setItemHeightIn(e.target.value)}
+              />
+            </label>
+            <label>
+              Length (in)
+              <input
+                type="number"
+                min={MIN_DIMENSION_IN}
+                max={MAX_DIMENSION_IN}
+                step={0.1}
+                value={itemLengthIn}
+                onChange={(e) => setItemLengthIn(e.target.value)}
+              />
+            </label>
+          </div>
+          <p className={s.addDishNote}>
+            Optional: measure the dish as served, in inches (up to 20). With dimensions, the 3D
+            model appears at exactly that size in AR; without them it's shown at a typical 10-inch
+            plate size.
+          </p>
+          {categories.length === 0 && (
+            <p className={s.addDishNote}>
+              Every dish needs a cuisine type — add one under Cuisine Types above first.
+            </p>
+          )}
+          <button type="submit" className={s.addDishSubmit} disabled={categories.length === 0}>
+            Add dish
+          </button>
         </form>
       </section>
     </AppShell>

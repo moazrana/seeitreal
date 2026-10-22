@@ -5,9 +5,50 @@ import { UserRole } from '@ar-menu/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { RestaurantsService } from '../restaurants/restaurants.service';
 import { StorageService } from '../storage/storage.service';
-import { TripoClientService } from './tripo-client.service';
+import {
+  TripoClientService,
+  TripoRequestRejectedError,
+} from './tripo-client.service';
 import { TripoGenerationService } from './tripo-generation.service';
 import { UsdzConversionService } from './usdz-conversion.service';
+
+// Factory mock (not automock) so the real './model-scaling.service' module
+// is never evaluated here — it statically imports @gltf-transform/core,
+// which ships a CJS build that requires the ESM-only `property-graph`
+// package. Real Node 22 resolves that fine (require(esm)), but Jest's own
+// module loader doesn't implement that interop, so importing it for real
+// inside a Jest test file throws. ModelScalingService itself is covered by
+// model-scaling.service.spec.ts (which mocks these same gltf-transform
+// packages for the same reason).
+//
+// Deliberately a plain `require` (not an ES `import`) — TS/ts-jest always
+// hoists `import` statements above other statements when compiling to
+// CommonJS, which would run this require before jest.mock() had a chance
+// to register the mock.
+jest.mock('./model-scaling.service', () => ({
+  ModelScalingService: jest.fn(),
+}));
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const modelScalingModule = require('./model-scaling.service');
+const { ModelScalingService } =
+  modelScalingModule as typeof import('./model-scaling.service');
+// Same reasoning for the optimizer (gltf-transform + ESM-only meshoptimizer);
+// its real behaviour is verified outside Jest (see README).
+jest.mock('./model-optimization.service', () => ({
+  ModelOptimizationService: jest.fn(),
+}));
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const modelOptimizationModule = require('./model-optimization.service');
+const { ModelOptimizationService } =
+  modelOptimizationModule as typeof import('./model-optimization.service');
+// Same reasoning for the material step (gltf-transform).
+jest.mock('./model-material.service', () => ({
+  ModelMaterialService: jest.fn(),
+}));
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const modelMaterialModule = require('./model-material.service');
+const { ModelMaterialService } =
+  modelMaterialModule as typeof import('./model-material.service');
 
 describe('TripoGenerationService', () => {
   let service: TripoGenerationService;
@@ -18,11 +59,20 @@ describe('TripoGenerationService', () => {
       update: jest.Mock;
       findMany: jest.Mock;
     };
+    modelGeneration: { count: jest.Mock; create: jest.Mock };
+    $transaction: jest.Mock;
   };
   let restaurants: { assertOwnership: jest.Mock };
-  let tripoClient: { submitImageToModel: jest.Mock; getTaskStatus: jest.Mock };
+  let tripoClient: {
+    submitImageToModel: jest.Mock;
+    submitMultiviewToModel: jest.Mock;
+    getTaskStatus: jest.Mock;
+  };
   let storage: { putObject: jest.Mock; generateKey: jest.Mock };
   let usdz: { convert: jest.Mock };
+  let modelScaling: { scaleToRealSize: jest.Mock };
+  let modelOptimization: { optimizeOrOriginal: jest.Mock };
+  let modelMaterial: { makeNonMetallic: jest.Mock };
   let originalFetch: typeof fetch;
 
   const owner = { userId: 1, email: 'owner@example.com', role: UserRole.OWNER };
@@ -36,9 +86,18 @@ describe('TripoGenerationService', () => {
         update: jest.fn(),
         findMany: jest.fn(),
       },
+      modelGeneration: {
+        count: jest.fn().mockResolvedValue(0),
+        create: jest.fn().mockResolvedValue({ id: 1 }),
+      },
+      $transaction: jest.fn((ops: Promise<unknown>[]) => Promise.all(ops)),
     };
     restaurants = { assertOwnership: jest.fn().mockResolvedValue(restaurant) };
-    tripoClient = { submitImageToModel: jest.fn(), getTaskStatus: jest.fn() };
+    tripoClient = {
+      submitImageToModel: jest.fn(),
+      submitMultiviewToModel: jest.fn(),
+      getTaskStatus: jest.fn(),
+    };
     storage = {
       putObject: jest
         .fn()
@@ -50,6 +109,21 @@ describe('TripoGenerationService', () => {
       ),
     };
     usdz = { convert: jest.fn() };
+    modelScaling = {
+      scaleToRealSize: jest
+        .fn()
+        .mockImplementation((buf: Buffer) => Promise.resolve(buf)),
+    };
+    modelMaterial = {
+      makeNonMetallic: jest
+        .fn()
+        .mockImplementation((buf: Buffer) => Promise.resolve(buf)),
+    };
+    modelOptimization = {
+      optimizeOrOriginal: jest
+        .fn()
+        .mockImplementation((buf: Buffer) => Promise.resolve(buf)),
+    };
 
     const moduleRef = await Test.createTestingModule({
       providers: [
@@ -59,6 +133,9 @@ describe('TripoGenerationService', () => {
         { provide: TripoClientService, useValue: tripoClient },
         { provide: StorageService, useValue: storage },
         { provide: UsdzConversionService, useValue: usdz },
+        { provide: ModelScalingService, useValue: modelScaling },
+        { provide: ModelOptimizationService, useValue: modelOptimization },
+        { provide: ModelMaterialService, useValue: modelMaterial },
         {
           provide: ConfigService,
           useValue: {
@@ -99,11 +176,30 @@ describe('TripoGenerationService', () => {
       expect(tripoClient.submitImageToModel).not.toHaveBeenCalled();
     });
 
+    it('generates without dimensions — they are optional (mango points 2)', async () => {
+      prisma.menuItem.findUnique.mockResolvedValueOnce({
+        id: 1,
+        restaurantId: restaurant.id,
+        photoUrl: 'http://example.com/photo.jpg',
+        widthMm: null,
+        arStatus: 'pending',
+      });
+      tripoClient.submitImageToModel.mockResolvedValueOnce({
+        taskId: 'task_123',
+      });
+      prisma.menuItem.update.mockResolvedValueOnce({ id: 1 });
+
+      await service.triggerGeneration(restaurant.id, 1, owner);
+
+      expect(tripoClient.submitImageToModel).toHaveBeenCalled();
+    });
+
     it('refuses to re-trigger while already generating (debounce guard)', async () => {
       prisma.menuItem.findUnique.mockResolvedValueOnce({
         id: 1,
         restaurantId: restaurant.id,
         photoUrl: 'http://example.com/photo.jpg',
+        widthMm: 260,
         arStatus: 'generating',
       });
 
@@ -118,6 +214,7 @@ describe('TripoGenerationService', () => {
         id: 1,
         restaurantId: restaurant.id,
         photoUrl: 'http://example.com/photo.jpg',
+        widthMm: 260,
         arStatus: 'pending',
       });
       tripoClient.submitImageToModel.mockResolvedValueOnce({
@@ -132,17 +229,296 @@ describe('TripoGenerationService', () => {
 
       expect(tripoClient.submitImageToModel).toHaveBeenCalledWith(
         'http://example.com/photo.jpg',
-        expect.objectContaining({ texture: true, pbr: true }),
+        expect.objectContaining({ texture: true, pbr: false }),
       );
       expect(prisma.menuItem.update).toHaveBeenCalledWith({
         where: { id: 1 },
-        data: { arStatus: 'generating', tripoTaskId: 'task_123', qaNote: null },
+        data: {
+          arStatus: 'generating',
+          tripoTaskId: 'task_123',
+          qaNote: null,
+          qaIssues: null,
+        },
       });
+    });
+
+    it('uses the single-image endpoint for exactly one photo from the photos relation (documents/3d-model-enhancement.md §1)', async () => {
+      prisma.menuItem.findUnique.mockResolvedValueOnce({
+        id: 1,
+        restaurantId: restaurant.id,
+        photoUrl: 'http://example.com/legacy.jpg',
+        photos: [
+          { id: 1, sortOrder: 0, url: 'http://example.com/photo-0.jpg' },
+        ],
+        widthMm: 260,
+        arStatus: 'pending',
+      });
+      tripoClient.submitImageToModel.mockResolvedValueOnce({
+        taskId: 'task_1',
+      });
+      prisma.menuItem.update.mockResolvedValueOnce({ id: 1 });
+
+      await service.triggerGeneration(restaurant.id, 1, owner);
+
+      // Prefers the `photos` relation over the legacy photoUrl field when
+      // both are present.
+      expect(tripoClient.submitImageToModel).toHaveBeenCalledWith(
+        'http://example.com/photo-0.jpg',
+        expect.objectContaining({ texture: true, pbr: false }),
+      );
+      expect(tripoClient.submitMultiviewToModel).not.toHaveBeenCalled();
+    });
+
+    it('routes 2-5 photos to the multiview endpoint, capped at 4, in upload order', async () => {
+      prisma.menuItem.findUnique.mockResolvedValueOnce({
+        id: 1,
+        restaurantId: restaurant.id,
+        photos: [0, 1, 2, 3, 4].map((n) => ({
+          id: n,
+          sortOrder: n,
+          url: `http://example.com/photo-${n}.jpg`,
+        })),
+        widthMm: 260,
+        arStatus: 'pending',
+      });
+      tripoClient.submitMultiviewToModel.mockResolvedValueOnce({
+        taskId: 'task_mv',
+      });
+      prisma.menuItem.update.mockResolvedValueOnce({ id: 1 });
+
+      await service.triggerGeneration(restaurant.id, 1, owner);
+
+      expect(tripoClient.submitImageToModel).not.toHaveBeenCalled();
+      expect(tripoClient.submitMultiviewToModel).toHaveBeenCalledWith(
+        [
+          'http://example.com/photo-0.jpg',
+          'http://example.com/photo-1.jpg',
+          'http://example.com/photo-2.jpg',
+          'http://example.com/photo-3.jpg',
+        ],
+        expect.objectContaining({ texture: true, pbr: false }),
+      );
+    });
+
+    it('logs every submitted job with its task id and user', async () => {
+      prisma.menuItem.findUnique.mockResolvedValueOnce({
+        id: 1,
+        restaurantId: restaurant.id,
+        photos: [{ id: 1, sortOrder: 0, url: 'http://example.com/photo.jpg' }],
+        arStatus: 'pending',
+      });
+      tripoClient.submitImageToModel.mockResolvedValueOnce({
+        taskId: 'task_1',
+      });
+      prisma.menuItem.update.mockResolvedValueOnce({ id: 1 });
+
+      await service.triggerGeneration(restaurant.id, 1, owner);
+
+      expect(prisma.modelGeneration.create).toHaveBeenCalledWith({
+        data: {
+          restaurantId: restaurant.id,
+          userId: owner.userId,
+          menuItemId: 1,
+          tripoTaskId: 'task_1',
+        },
+      });
+    });
+
+    it('falls back to the first photo when Tripo refuses a multiview request', async () => {
+      prisma.menuItem.findUnique.mockResolvedValueOnce({
+        id: 1,
+        restaurantId: restaurant.id,
+        photos: [
+          { id: 1, sortOrder: 0, url: 'http://example.com/a.jpg' },
+          { id: 2, sortOrder: 1, url: 'http://example.com/b.jpg' },
+          { id: 3, sortOrder: 2, url: 'http://example.com/c.jpg' },
+        ],
+        arStatus: 'pending',
+      });
+      tripoClient.submitMultiviewToModel.mockRejectedValueOnce(
+        new TripoRequestRejectedError(),
+      );
+      tripoClient.submitImageToModel.mockResolvedValueOnce({
+        taskId: 'task_f',
+      });
+      prisma.menuItem.update.mockResolvedValueOnce({ id: 1 });
+
+      await service.triggerGeneration(restaurant.id, 1, owner);
+
+      expect(tripoClient.submitImageToModel).toHaveBeenCalledWith(
+        'http://example.com/a.jpg',
+        expect.any(Object),
+      );
+      expect(prisma.modelGeneration.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ tripoTaskId: 'task_f' }),
+      });
+    });
+
+    it('does not fall back on a server error (a task may exist)', async () => {
+      prisma.menuItem.findUnique.mockResolvedValueOnce({
+        id: 1,
+        restaurantId: restaurant.id,
+        photos: [
+          { id: 1, sortOrder: 0, url: 'http://example.com/a.jpg' },
+          { id: 2, sortOrder: 1, url: 'http://example.com/b.jpg' },
+        ],
+        arStatus: 'pending',
+      });
+      tripoClient.submitMultiviewToModel.mockRejectedValueOnce(
+        new Error('500 from Tripo'),
+      );
+
+      await expect(
+        service.triggerGeneration(restaurant.id, 1, owner),
+      ).rejects.toThrow('500 from Tripo');
+      expect(tripoClient.submitImageToModel).not.toHaveBeenCalled();
+    });
+
+    it('refuses with 429, before calling Tripo, once the daily cap is reached', async () => {
+      prisma.menuItem.findUnique.mockResolvedValueOnce({
+        id: 1,
+        restaurantId: restaurant.id,
+        photos: [{ id: 1, sortOrder: 0, url: 'http://example.com/photo.jpg' }],
+        arStatus: 'pending',
+      });
+      prisma.modelGeneration.count.mockResolvedValueOnce(20);
+
+      await expect(
+        service.triggerGeneration(restaurant.id, 1, owner),
+      ).rejects.toMatchObject({ status: 429 });
+      expect(tripoClient.submitImageToModel).not.toHaveBeenCalled();
+      expect(prisma.modelGeneration.count).toHaveBeenCalledWith({
+        where: { userId: owner.userId, createdAt: { gte: expect.any(Date) } },
+      });
+    });
+
+    it('defaults to the faster standard texture quality', async () => {
+      prisma.menuItem.findUnique.mockResolvedValueOnce({
+        id: 1,
+        restaurantId: restaurant.id,
+        photos: [{ id: 1, sortOrder: 0, url: 'http://example.com/photo.jpg' }],
+        widthMm: 260,
+        arStatus: 'pending',
+      });
+      tripoClient.submitImageToModel.mockResolvedValueOnce({
+        taskId: 'task_1',
+      });
+      prisma.menuItem.update.mockResolvedValueOnce({ id: 1 });
+
+      await service.triggerGeneration(restaurant.id, 1, owner);
+
+      expect(tripoClient.submitImageToModel).toHaveBeenCalledWith(
+        'http://example.com/photo.jpg',
+        expect.objectContaining({ textureQuality: 'standard' }),
+      );
+    });
+
+    it('requests no PBR and a 150k face limit by default (faster, never chrome)', async () => {
+      prisma.menuItem.findUnique.mockResolvedValueOnce({
+        id: 1,
+        restaurantId: restaurant.id,
+        photos: [{ id: 1, sortOrder: 0, url: 'http://example.com/photo.jpg' }],
+        arStatus: 'pending',
+      });
+      tripoClient.submitImageToModel.mockResolvedValueOnce({
+        taskId: 'task_1',
+      });
+      prisma.menuItem.update.mockResolvedValueOnce({ id: 1 });
+
+      await service.triggerGeneration(restaurant.id, 1, owner);
+
+      expect(tripoClient.submitImageToModel).toHaveBeenCalledWith(
+        'http://example.com/photo.jpg',
+        expect.objectContaining({ pbr: false, faceLimit: 150_000 }),
+      );
+    });
+  });
+
+  describe('regenerateAsAdmin', () => {
+    const qaItem = {
+      id: 1,
+      restaurantId: restaurant.id,
+      photos: [{ id: 1, sortOrder: 0, url: 'http://example.com/photo.jpg' }],
+      arStatus: 'qa',
+    };
+
+    it("submits with the reason's guidance, keeps the note, and logs the admin", async () => {
+      prisma.menuItem.findUnique.mockResolvedValueOnce(qaItem);
+      tripoClient.submitImageToModel.mockResolvedValueOnce({
+        taskId: 'task_9',
+      });
+      prisma.menuItem.update.mockResolvedValueOnce({ id: 1 });
+
+      await service.regenerateAsAdmin(1, 42, 'Bun is too orange', undefined);
+
+      expect(tripoClient.submitImageToModel).toHaveBeenCalledWith(
+        'http://example.com/photo.jpg',
+        expect.objectContaining({
+          pbr: true,
+          textureQuality: 'detailed',
+          textureAlignment: 'original_image',
+          modelSeed: expect.any(Number),
+        }),
+      );
+      expect(prisma.menuItem.update).toHaveBeenCalledWith({
+        where: { id: 1 },
+        data: expect.objectContaining({
+          arStatus: 'generating',
+          tripoTaskId: 'task_9',
+          qaNote: 'Bun is too orange',
+          qaIssues: 'colors',
+        }),
+      });
+      expect(prisma.modelGeneration.create).toHaveBeenCalledWith({
+        data: {
+          restaurantId: restaurant.id,
+          rootAdminId: 42,
+          menuItemId: 1,
+          tripoTaskId: 'task_9',
+        },
+      });
+      expect(prisma.modelGeneration.count).toHaveBeenCalledWith({
+        where: { rootAdminId: 42, createdAt: { gte: expect.any(Date) } },
+      });
+    });
+
+    it('allows live items but refuses one that is pending or generating', async () => {
+      prisma.menuItem.findUnique.mockResolvedValueOnce({
+        ...qaItem,
+        arStatus: 'generating',
+      });
+      await expect(
+        service.regenerateAsAdmin(1, 42, 'x', ['shape']),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(tripoClient.submitImageToModel).not.toHaveBeenCalled();
+    });
+
+    it("applies the stored rejection issues to the owner's next generation", async () => {
+      prisma.menuItem.findUnique.mockResolvedValueOnce({
+        ...qaItem,
+        arStatus: 'pending',
+        qaNote: 'please redo',
+        qaIssues: 'detail',
+      });
+      tripoClient.submitImageToModel.mockResolvedValueOnce({
+        taskId: 'task_5',
+      });
+      prisma.menuItem.update.mockResolvedValueOnce({ id: 1 });
+
+      await service.triggerGeneration(restaurant.id, 1, owner);
+
+      expect(tripoClient.submitImageToModel).toHaveBeenCalledWith(
+        'http://example.com/photo.jpg',
+        expect.objectContaining({
+          textureQuality: 'detailed',
+          modelSeed: expect.any(Number),
+        }),
+      );
     });
   });
 
   describe('handleTaskResult', () => {
-    it('ignores a still-processing status (no item update)', async () => {
+    it('ignores a still-running status (no item update)', async () => {
       prisma.menuItem.findFirst.mockResolvedValueOnce({
         id: 1,
         tripoTaskId: 'task_1',
@@ -150,7 +526,7 @@ describe('TripoGenerationService', () => {
 
       await service.handleTaskResult({
         taskId: 'task_1',
-        status: 'processing',
+        status: 'running',
         progress: 40,
       });
 
@@ -235,6 +611,123 @@ describe('TripoGenerationService', () => {
         'tripo-expiring.example',
       );
       expect(updateCall.data.modelGlbUrl).toContain('localhost');
+    });
+
+    it('scales the GLB to the item real-world width before uploading and before USDZ conversion (documents/TASK-real-world-ar-sizing.md)', async () => {
+      prisma.menuItem.findFirst.mockResolvedValueOnce({
+        id: 1,
+        tripoTaskId: 'task_1',
+        widthMm: 260,
+      });
+      (global.fetch as jest.Mock).mockResolvedValue({
+        ok: true,
+        arrayBuffer: () => Promise.resolve(Buffer.from('fake-glb-bytes')),
+      });
+      const scaledBuffer = Buffer.from('scaled-glb-bytes');
+      modelScaling.scaleToRealSize.mockResolvedValueOnce(scaledBuffer);
+      usdz.convert.mockResolvedValueOnce(Buffer.from('fake-usdz'));
+
+      await service.handleTaskResult({
+        taskId: 'task_1',
+        status: 'success',
+        progress: 100,
+        output: { modelUrl: 'https://tripo.example/model.glb' },
+      });
+
+      expect(modelScaling.scaleToRealSize).toHaveBeenCalledWith(
+        Buffer.from('fake-glb-bytes'),
+        { widthMm: 260, lengthMm: undefined },
+      );
+      // The uploaded GLB and the buffer handed to USDZ conversion must both
+      // be the *scaled* buffer, not the raw Tripo download.
+      expect(storage.putObject).toHaveBeenCalledWith(
+        expect.objectContaining({
+          contentType: 'model/gltf-binary',
+          body: scaledBuffer,
+        }),
+      );
+      expect(usdz.convert).toHaveBeenCalledWith(scaledBuffer);
+    });
+
+    it('optimizes the scaled GLB and uploads/converts the optimized result', async () => {
+      prisma.menuItem.findFirst.mockResolvedValueOnce({
+        id: 1,
+        tripoTaskId: 'task_1',
+        widthMm: null,
+        lengthMm: null,
+      });
+      (global.fetch as jest.Mock).mockResolvedValue({
+        ok: true,
+        arrayBuffer: () => Promise.resolve(Buffer.from('raw')),
+      });
+      const scaled = Buffer.from('scaled');
+      const optimized = Buffer.from('optimized');
+      modelScaling.scaleToRealSize.mockResolvedValueOnce(scaled);
+      modelOptimization.optimizeOrOriginal.mockResolvedValueOnce(optimized);
+      const matte = Buffer.from('matte');
+      modelMaterial.makeNonMetallic.mockResolvedValueOnce(matte);
+      usdz.convert.mockResolvedValueOnce(Buffer.from('usdz'));
+
+      await service.handleTaskResult({
+        taskId: 'task_1',
+        status: 'success',
+        progress: 100,
+        output: { modelUrl: 'https://tripo.example/model.glb' },
+      });
+
+      // No dimensions: still scaled (to the default footprint), never raw.
+      expect(modelScaling.scaleToRealSize).toHaveBeenCalledWith(
+        Buffer.from('raw'),
+        { widthMm: null, lengthMm: null },
+      );
+      expect(modelOptimization.optimizeOrOriginal).toHaveBeenCalledWith(
+        scaled,
+        expect.stringContaining('task_1'),
+      );
+      // Metallic is removed after optimizing, and both stored formats get it.
+      expect(modelMaterial.makeNonMetallic).toHaveBeenCalledWith(
+        optimized,
+        expect.stringContaining('task_1'),
+      );
+      expect(storage.putObject).toHaveBeenCalledWith(
+        expect.objectContaining({
+          contentType: 'model/gltf-binary',
+          body: matte,
+        }),
+      );
+      expect(usdz.convert).toHaveBeenCalledWith(matte);
+    });
+
+    it('flags the item for QA (not live-but-mis-sized) when scaling fails', async () => {
+      prisma.menuItem.findFirst.mockResolvedValueOnce({
+        id: 1,
+        tripoTaskId: 'task_1',
+        widthMm: 260,
+      });
+      (global.fetch as jest.Mock).mockResolvedValue({
+        ok: true,
+        arrayBuffer: () => Promise.resolve(Buffer.from('fake-glb-bytes')),
+      });
+      modelScaling.scaleToRealSize.mockRejectedValueOnce(
+        new Error('bounding box is degenerate'),
+      );
+
+      await service.handleTaskResult({
+        taskId: 'task_1',
+        status: 'success',
+        progress: 100,
+        output: { modelUrl: 'https://tripo.example/model.glb' },
+      });
+
+      expect(storage.putObject).not.toHaveBeenCalled();
+      expect(usdz.convert).not.toHaveBeenCalled();
+      expect(prisma.menuItem.update).toHaveBeenCalledWith({
+        where: { id: 1 },
+        data: {
+          arStatus: 'qa',
+          qaNote: expect.stringContaining('scaling'),
+        },
+      });
     });
   });
 });

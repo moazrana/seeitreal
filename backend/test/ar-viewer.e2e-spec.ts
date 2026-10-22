@@ -4,6 +4,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
 import type { App } from 'supertest/types';
 import { AppModule } from '../src/app.module';
+import { createCuisineType } from './helpers/cuisine-type';
 import { PrismaService } from '../src/prisma/prisma.service';
 
 /**
@@ -17,7 +18,8 @@ describe('Diner AR viewer (e2e)', () => {
   let app: INestApplication<App>;
   let prisma: PrismaService;
   let accessToken: string;
-  let restaurantId: number;
+  let restaurantSlug: string;
+  let categoryId: number;
 
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -40,19 +42,21 @@ describe('Diner AR viewer (e2e)', () => {
     const email = `${randomUUID()}@example.com`;
     const signupRes = await request(app.getHttpServer())
       .post('/api/auth/signup')
-      .send({ email, password: 'CorrectHorse123' })
-      .expect(201);
-    accessToken = signupRes.body.accessToken as string;
-
-    const restaurantRes = await request(app.getHttpServer())
-      .post('/api/restaurants')
-      .set('Authorization', `Bearer ${accessToken}`)
       .send({
-        name: 'AR Viewer Test Diner',
-        slug: `ar-viewer-test-${Date.now()}`,
+        email,
+        password: 'CorrectHorse123',
+        confirmPassword: 'CorrectHorse123',
+        businessName: 'AR Viewer Test Diner',
+        address: '1 AR Viewer Test Street',
       })
       .expect(201);
-    restaurantId = restaurantRes.body.id as number;
+    accessToken = signupRes.body.accessToken as string;
+    restaurantSlug = signupRes.body.restaurant.slug as string;
+    categoryId = await createCuisineType(
+      app.getHttpServer(),
+      accessToken,
+      restaurantSlug,
+    );
   });
 
   afterAll(async () => {
@@ -61,9 +65,9 @@ describe('Diner AR viewer (e2e)', () => {
 
   async function createItem(name: string, description?: string) {
     const res = await request(app.getHttpServer())
-      .post(`/api/restaurants/${restaurantId}/items`)
+      .post(`/api/restaurants/${restaurantSlug}/items`)
       .set('Authorization', `Bearer ${accessToken}`)
-      .send({ name, price: 9.99, description })
+      .send({ name, description, categoryId })
       .expect(201);
     return res.body as { id: number; publicSlug: string };
   }
@@ -135,6 +139,14 @@ describe('Diner AR viewer (e2e)', () => {
     expect(res.headers['content-type']).toContain('javascript');
     expect(res.headers['cache-control']).toContain('immutable');
     expect(res.text.length).toBeGreaterThan(1000);
+  });
+
+  it('serves the viewer theme script as same-origin JavaScript (documents/USER-APP-theming.md §5)', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/api/static/ar-viewer-theme.js')
+      .expect(200);
+    expect(res.headers['content-type']).toContain('javascript');
+    expect(res.text).toContain('prefers-color-scheme: light');
   });
 
   it('never requires auth for the public page (no Authorization header sent)', async () => {

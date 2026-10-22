@@ -1,6 +1,6 @@
 import type { ApiErrorBody } from './types';
 
-const API_BASE_URL: string = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:4001/api';
+export const API_BASE_URL: string = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:4001/api';
 
 // Access token lives in memory only (never localStorage) — an XSS payload
 // that can run JS can also just call the API directly, but keeping the
@@ -96,7 +96,12 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
   if (res.status === 204) {
     return undefined as T;
   }
-  return (await res.json()) as T;
+  // A controller returning `null` (e.g. "no subscription yet") makes Nest
+  // send a genuinely empty body (Content-Length: 0) on a 200, not 204 —
+  // res.json() throws "Unexpected end of JSON input" on that. Read as text
+  // first so any endpoint that can resolve to null/undefined stays safe.
+  const text = await res.text();
+  return (text ? JSON.parse(text) : null) as T;
 }
 
 export const api = {
@@ -109,6 +114,15 @@ export const api = {
   upload: <T>(path: string, file: File) => {
     const formData = new FormData();
     formData.append('file', file);
+    return apiFetch<T>(path, { method: 'POST', body: formData });
+  },
+  // Multi-photo upload (documents/3d-model-enhancement.md §1) — all files
+  // share the 'files' field name, matching the backend's FilesInterceptor.
+  uploadMany: <T>(path: string, files: File[]) => {
+    const formData = new FormData();
+    for (const file of files) {
+      formData.append('files', file);
+    }
     return apiFetch<T>(path, { method: 'POST', body: formData });
   },
 };

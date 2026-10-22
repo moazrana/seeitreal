@@ -7,8 +7,10 @@ import {
   Min,
   MinLength,
 } from 'class-validator';
+import { Trim } from '../../common/decorators/trim.decorator';
 
 export class CreateMenuCategoryDto {
+  @Trim()
   @IsString()
   @MinLength(1)
   @MaxLength(150)

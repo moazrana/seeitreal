@@ -1,9 +1,13 @@
-import { plainToInstance, Type } from 'class-transformer';
+import { plainToInstance, Transform, Type } from 'class-transformer';
 import {
+  IsBoolean,
+  IsEmail,
   IsEnum,
+  IsIn,
   IsInt,
   IsOptional,
   IsString,
+  Matches,
   Max,
   Min,
   MinLength,
@@ -140,6 +144,185 @@ class EnvironmentVariables {
   @IsOptional()
   @IsString()
   TRIPO_MODEL_VERSION?: string;
+
+  // Tripo texture quality — configurable so speed vs. sharpness can be
+  // tuned without a code change. Defaults to 'standard' (faster) in
+  // TripoGenerationService if unset.
+  @IsOptional()
+  @IsString()
+  TRIPO_TEXTURE_QUALITY?: string;
+
+  // 'true' re-enables Tripo PBR materials (slower, and the metallic map is
+  // what made dishes look like chrome). Off when unset.
+  @IsOptional()
+  @IsIn(['true', 'false'])
+  TRIPO_PBR?: string;
+
+  // Max faces Tripo may generate; defaults to the optimizer's 150k budget.
+  // 0 leaves it to Tripo.
+  @IsOptional()
+  @Matches(/^\d+$/)
+  TRIPO_FACE_LIMIT?: string;
+
+  // Max Tripo jobs one user may submit per rolling 24 hours (each is a paid
+  // call). Defaults to 20 in TripoGenerationService.
+  @IsOptional()
+  @Matches(/^\d+$/)
+  TRIPO_DAILY_GENERATIONS_PER_USER?: string;
+
+  // Max Tripo regenerations one Root App admin may start per rolling 24
+  // hours. Defaults to 50 in TripoGenerationService.
+  @IsOptional()
+  @Matches(/^\d+$/)
+  TRIPO_DAILY_GENERATIONS_PER_ADMIN?: string;
+
+  // Image-based lighting for the diner AR viewer's <model-viewer>
+  // (documents/3d-model-enhancement.md §3) — a warm kitchen/restaurant HDR
+  // hosted on object storage gives the most realistic result; the literal
+  // string "neutral" (model-viewer's built-in studio IBL) is the safe
+  // baseline used when unset, per the doc's own fallback guidance.
+  @IsOptional()
+  @IsString()
+  AR_ENVIRONMENT_IMAGE_URL?: string;
+
+  // Light-mode counterpart (documents/USER-APP-theming.md §5): a brighter,
+  // neutral HDR for diners whose phone is in light mode. Falls back to
+  // "neutral" when unset, never to the dark-mode HDR.
+  @IsOptional()
+  @IsString()
+  AR_ENVIRONMENT_IMAGE_URL_LIGHT?: string;
+
+  // --- GLB -> USDZ conversion — optional at boot, same reasoning as the
+  // Tripo vars above; UsdzConversionService falls back to the conventional
+  // /opt/usdz-tools install path (see backend README) if unset.
+  @IsOptional()
+  @IsString()
+  USDZ_PYTHON_BIN?: string;
+
+  @IsOptional()
+  @IsString()
+  USDZ_CONVERTER_SCRIPT?: string;
+
+  // --- Payments (documents/USER-APP-subscription-and-ui.md §3) — optional
+  // at boot, same tier as TRIPO_API_KEY above: PaymentsService/gateway
+  // adapters fail loudly at call time, not startup, so `npm run start`
+  // keeps working for anyone who hasn't configured billing yet.
+  @IsOptional()
+  @IsString()
+  STRIPE_SECRET_KEY?: string;
+
+  @IsOptional()
+  @IsString()
+  STRIPE_WEBHOOK_SECRET?: string;
+
+  @IsOptional()
+  @IsString()
+  SAFEPAY_API_KEY?: string;
+
+  @IsOptional()
+  @IsString()
+  SAFEPAY_WEBHOOK_SECRET?: string;
+
+  @IsOptional()
+  @IsString()
+  SAFEPAY_BASE_URL?: string;
+
+  // Soft default only for the checkout form's country field — the
+  // confirmed billing country the owner picks is what actually routes the
+  // gateway (spec: "IP is a guess; billing country is truth").
+  @IsOptional()
+  @IsString()
+  @Matches(/^[A-Za-z]{2}$/, {
+    message: 'DEFAULT_CHECKOUT_COUNTRY must be a 2-letter country code',
+  })
+  DEFAULT_CHECKOUT_COUNTRY?: string;
+
+  // Grace period between a failed payment (past_due) and the AR viewer
+  // actually gating (expired) — documents/USER-APP-subscription-and-ui.md
+  // §4.2: "3-7 days, configurable". Parsed/defaulted in
+  // SubscriptionLifecycleService, not here, so an unset or malformed value
+  // falls back safely rather than blocking boot.
+  @IsOptional()
+  @IsString()
+  SUBSCRIPTION_GRACE_PERIOD_DAYS?: string;
+
+  // Dashboard origin used to build Stripe/Safepay checkout success/cancel
+  // redirect URLs — distinct from API_BASE_URL (the API's own origin).
+  @IsOptional()
+  @IsString()
+  FRONTEND_BASE_URL?: string;
+
+  // --- Transactional email (documents/TASK-home-page-content.md §5) —
+  // optional at boot, same tier as payments: MailService reports "not
+  // configured" at call time and contact enquiries are still stored, so
+  // `npm run start` works without an email provider. The API key is
+  // server-side only and never reaches the frontend.
+  @IsOptional()
+  @IsString()
+  RESEND_API_KEY?: string;
+
+  // Verified sender, e.g. "SeeItReal <hello@seeitreal.com>".
+  @IsOptional()
+  @IsString()
+  MAIL_FROM?: string;
+
+  // Where home-page contact enquiries are delivered.
+  @IsOptional()
+  @IsEmail()
+  CONTACT_RECIPIENT_EMAIL?: string;
+
+  // --- Root App (rootApp/ROOT-APP-Implementation-Spec.md §5) — a fully
+  // separate secret/session set from the customer app's JWT_* above, so a
+  // leaked customer secret can never forge a root-admin session or vice
+  // versa.
+  @IsString()
+  @MinLength(32, {
+    message: 'ROOT_JWT_ACCESS_SECRET must be at least 32 characters',
+  })
+  ROOT_JWT_ACCESS_SECRET!: string;
+
+  @IsString()
+  @MinLength(1)
+  ROOT_JWT_ACCESS_EXPIRES_IN = '10m';
+
+  @IsString()
+  @MinLength(32, {
+    message: 'ROOT_JWT_REFRESH_SECRET must be at least 32 characters',
+  })
+  ROOT_JWT_REFRESH_SECRET!: string;
+
+  // Shorter-lived than the customer app's 7d default (spec §5: "short-lived
+  // sessions").
+  @IsString()
+  @MinLength(1)
+  ROOT_JWT_REFRESH_EXPIRES_IN = '12h';
+
+  // Key TOTP secrets are encrypted with at rest (see root/auth/totp.service.ts).
+  @IsString()
+  @MinLength(32, {
+    message: 'ROOT_TOTP_ENCRYPTION_KEY must be at least 32 characters',
+  })
+  ROOT_TOTP_ENCRYPTION_KEY!: string;
+
+  // Comma-separated IPs/CIDRs. Optional at boot (empty = allow all, with a
+  // loud runtime warning — see IpAllowlistGuard) so local dev isn't locked
+  // out by default; must be set before exposing the Root App publicly.
+  @IsOptional()
+  @IsString()
+  ROOT_APP_IP_ALLOWLIST?: string;
+
+  // Only enable once genuinely behind a trusted reverse proxy (nginx) —
+  // see main.ts. Left false by default so req.ip can't be spoofed via a
+  // forged X-Forwarded-For header in any environment that isn't actually
+  // behind one. Deliberately NOT @Type(() => Boolean) — class-transformer's
+  // Boolean() coercion treats the string "false" as truthy (a classic
+  // gotcha), so this parses explicitly instead.
+  @IsOptional()
+  @Transform(
+    ({ value }: { value: unknown }) => value === 'true' || value === true,
+  )
+  @IsBoolean()
+  TRUST_PROXY = false;
 }
 
 export function validateEnv(

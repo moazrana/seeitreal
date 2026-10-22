@@ -1,0 +1,126 @@
+import { NodeIO } from '@gltf-transform/core';
+import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
+import { getBounds } from '@gltf-transform/functions';
+import { DEFAULT_FOOTPRINT_MM } from '@ar-menu/shared';
+import { Injectable } from '@nestjs/common';
+
+/** The owner-entered footprint the model is scaled to, in millimetres.
+ * Both optional — without either, DEFAULT_FOOTPRINT_MM is used. */
+export interface RealFootprintMm {
+  widthMm?: number | null;
+  lengthMm?: number | null;
+}
+
+/**
+ * Scales a Tripo-generated GLB to the dish's true real-world size
+ * (documents/TASK-real-world-ar-sizing.md). Tripo returns models at an
+ * arbitrary normalized scale — without this step a burger and a wardrobe
+ * come out the same size in AR.
+ *
+ * Runs server-side, after the GLB is downloaded from Tripo and before
+ * GLB→USDZ conversion (TripoGenerationService.handleTaskResult), so both
+ * output files end up correctly sized.
+ */
+@Injectable()
+export class ModelScalingService {
+  // Built lazily on first use, not as an eager field initializer:
+  // NodeIO's constructor kicks off an internal dynamic import() of
+  // node:fs/node:path (for its file-path read/write helpers, which this
+  // service never uses — we only call readBinary/writeBinary on in-memory
+  // buffers). Constructing it eagerly would run that at module-load time
+  // for every process that imports this service, including test runners
+  // that don't support dynamic import in their module system.
+  private io: NodeIO | undefined;
+
+  private getIo(): NodeIO {
+    // Extension registration only affects which glTF extensions NodeIO
+    // understands while reading/writing (e.g. KHR_materials_*,
+    // KHR_texture_transform) — it does not add Draco/Meshopt geometry
+    // decompression, which needs separate wasm decoders we don't depend
+    // on. If Tripo ever starts returning Draco-compressed meshes this
+    // throws loudly instead of silently mis-scaling; the caller already
+    // treats a scaling failure as a QA-flag case, matching how USDZ
+    // conversion failures are handled.
+    this.io ??= new NodeIO().registerExtensions(ALL_EXTENSIONS);
+    return this.io;
+  }
+
+  /**
+   * Uniform-scales the model so its horizontal footprint matches the
+   * dish's real footprint, then translates it so its base rests at y = 0.
+   *
+   * The model's footprint is its larger horizontal bounding-box extent
+   * (X or Z), matched to the larger of the owner's width/length. Tripo
+   * doesn't orient dishes consistently around the vertical axis — a
+   * burger's long side can land on Z instead of X — so matching only the
+   * X extent to `widthMm` (the task spec's literal reading) scaled such
+   * models far too large along Z. Found on staging: a 260mm burger came
+   * out 26 × 33 × 57 cm; footprint matching gives 12 × 15 × 26 cm, whose
+   * 15 cm height agrees with the owner's own 150mm measurement.
+   *
+   * Still one uniform factor on all three axes — never stretched per axis,
+   * which would distort the AI's approximate proportions (spec:
+   * TASK-real-world-ar-sizing.md §3).
+   */
+  async scaleToRealSize(
+    glbBuffer: Buffer,
+    footprint: RealFootprintMm,
+  ): Promise<Buffer> {
+    const io = this.getIo();
+    const document = await io.readBinary(new Uint8Array(glbBuffer));
+    const scene = document.getRoot().listScenes()[0];
+    if (!scene) {
+      throw new Error('GLB has no scene to scale');
+    }
+
+    const bbox = getBounds(scene);
+    const currentFootprint = Math.max(
+      bbox.max[0] - bbox.min[0],
+      bbox.max[2] - bbox.min[2],
+    );
+    if (!Number.isFinite(currentFootprint) || currentFootprint <= 0) {
+      throw new Error(
+        `Cannot scale: model bounding box has an invalid footprint width (${currentFootprint})`,
+      );
+    }
+
+    const realFootprintMm =
+      Math.max(footprint.widthMm ?? 0, footprint.lengthMm ?? 0) ||
+      DEFAULT_FOOTPRINT_MM;
+    if (!Number.isFinite(realFootprintMm) || realFootprintMm <= 0) {
+      throw new Error(
+        `Cannot scale: invalid real-world footprint (${realFootprintMm}mm)`,
+      );
+    }
+
+    // glTF units are metres.
+    const factor = realFootprintMm / 1000 / currentFootprint;
+
+    // Uniform scale about the origin, applied to every top-level node: its
+    // own scale AND its offset from the origin. Scaling only the node scale
+    // shrank each part in place but left the spacing between parts
+    // unchanged, so a multi-part model (a cake plus separately placed
+    // candles) came out far larger than the target footprint.
+    for (const node of scene.listChildren()) {
+      const s = node.getScale();
+      node.setScale([s[0] * factor, s[1] * factor, s[2] * factor]);
+      const t = node.getTranslation();
+      node.setTranslation([t[0] * factor, t[1] * factor, t[2] * factor]);
+    }
+
+    // Ground the model: shift it so its lowest point sits at y = 0, so it
+    // rests naturally on the detected surface in AR instead of floating
+    // or sinking into it (recommended by the task spec).
+    const scaledBounds = getBounds(scene);
+    const dy = -scaledBounds.min[1];
+    if (dy !== 0) {
+      for (const node of scene.listChildren()) {
+        const t = node.getTranslation();
+        node.setTranslation([t[0], t[1] + dy, t[2]]);
+      }
+    }
+
+    const out = await io.writeBinary(document);
+    return Buffer.from(out);
+  }
+}

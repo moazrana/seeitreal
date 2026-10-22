@@ -1,11 +1,35 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 import { generatePublicSlug } from '../common/utils/slug.util';
 import { PrismaService } from '../prisma/prisma.service';
 import { RestaurantsService } from '../restaurants/restaurants.service';
 import { ImageUploadService } from '../uploads/image-upload.service';
 import type { AuthenticatedUser } from '../auth/types/authenticated-user.interface';
 import type { CreateMenuItemDto } from './dto/create-menu-item.dto';
+import { MAX_ITEM_PHOTOS } from './menu-items.constants';
 import type { UpdateMenuItemDto } from './dto/update-menu-item.dto';
+
+const PHOTOS_ORDERED = {
+  photos: { orderBy: { sortOrder: 'asc' as const } },
+} satisfies Prisma.MenuItemInclude;
+
+// Clears any in-flight/existing 3D model — the input photo set no longer
+// matches what was (or is being) generated, so a stale model must never be
+// left looking current.
+const MODEL_INVALIDATION_FIELDS = {
+  arStatus: 'pending' as const,
+  modelGlbUrl: null,
+  modelUsdzUrl: null,
+  previewImageUrl: null,
+  tripoTaskId: null,
+  qaNote: null,
+};
 
 @Injectable()
 export class MenuItemsService {
@@ -21,18 +45,20 @@ export class MenuItemsService {
     dto: CreateMenuItemDto,
   ) {
     await this.restaurants.assertOwnership(restaurantId, user);
-    if (dto.categoryId !== undefined) {
-      await this.assertCategoryBelongs(restaurantId, dto.categoryId);
-    }
+    await this.assertNameAvailable(restaurantId, dto.name);
+    await this.assertCategoryBelongs(restaurantId, dto.categoryId);
+    await this.assertUnderPlanItemLimit(restaurantId);
 
     return this.prisma.menuItem.create({
+      include: PHOTOS_ORDERED,
       data: {
         restaurantId,
         categoryId: dto.categoryId,
         name: dto.name,
         description: dto.description,
-        price: dto.price,
-        photoUrl: dto.photoUrl,
+        widthMm: dto.widthMm,
+        heightMm: dto.heightMm,
+        lengthMm: dto.lengthMm,
         publicSlug: generatePublicSlug(dto.name),
       },
     });
@@ -40,37 +66,107 @@ export class MenuItemsService {
 
   async findAll(restaurantId: number, user: AuthenticatedUser) {
     await this.restaurants.assertOwnership(restaurantId, user);
-    return this.prisma.menuItem.findMany({ where: { restaurantId } });
+    return this.prisma.menuItem.findMany({
+      where: { restaurantId },
+      include: PHOTOS_ORDERED,
+    });
   }
 
   async findOne(restaurantId: number, id: number, user: AuthenticatedUser) {
-    return this.findOwnedOrThrow(restaurantId, id, user);
+    return this.findOwnedWithPhotosOrThrow(restaurantId, id, user);
   }
 
-  async setPhoto(
+  /**
+   * Adds 1-5 photos (documents/3d-model-enhancement.md §1). Every file is
+   * validated/stored independently via ImageUploadService (full §7.5
+   * checklist), never as a batch shortcut. The first photo ever uploaded
+   * becomes the item's display photo (MenuItem.photoUrl); any photo change
+   * invalidates an in-flight/existing 3D model, same as the old setPhoto.
+   */
+  async addPhotos(
     restaurantId: number,
     id: number,
     user: AuthenticatedUser,
-    file: Express.Multer.File,
+    files: Express.Multer.File[],
   ) {
-    await this.findOwnedOrThrow(restaurantId, id, user);
-    const { url } = await this.imageUpload.processAndStore(
-      file,
-      'menu-item-photo',
-    );
-    // A new photo invalidates any in-flight or existing 3D model — it no
-    // longer matches what was (or is being) generated.
+    const item = await this.findOwnedWithPhotosOrThrow(restaurantId, id, user);
+    const existingCount = item.photos.length;
+    if (existingCount + files.length > MAX_ITEM_PHOTOS) {
+      throw new BadRequestException(
+        `A dish can have at most ${MAX_ITEM_PHOTOS} photos (${existingCount} already uploaded)`,
+      );
+    }
+
+    // Sequential, not Promise.all — keeps upload order (and therefore
+    // sortOrder) deterministic, and avoids one item's request fanning out
+    // into a burst of concurrent image-processing work.
+    const stored: { url: string }[] = [];
+    for (const file of files) {
+      stored.push(
+        await this.imageUpload.processAndStore(file, 'menu-item-photo'),
+      );
+    }
+
+    await this.prisma.menuItemPhoto.createMany({
+      data: stored.map(({ url }, index) => ({
+        menuItemId: id,
+        url,
+        sortOrder: existingCount + index,
+      })),
+    });
+
     return this.prisma.menuItem.update({
       where: { id },
+      include: PHOTOS_ORDERED,
       data: {
-        photoUrl: url,
-        arStatus: 'pending',
-        modelGlbUrl: null,
-        modelUsdzUrl: null,
-        previewImageUrl: null,
-        tripoTaskId: null,
-        qaNote: null,
+        ...(existingCount === 0 ? { photoUrl: stored[0].url } : {}),
+        ...MODEL_INVALIDATION_FIELDS,
       },
+    });
+  }
+
+  /**
+   * Removes one photo (documents/3d-model-enhancement.md §1). Renumbers the
+   * remaining photos to stay contiguous 0..n-1 and, if the removed photo
+   * was the display photo (sortOrder 0), promotes the new first photo (or
+   * clears it if none remain).
+   *
+   * Unlike addPhotos, this never invalidates the 3D model: removing an
+   * input photo doesn't make an already generated/approved model wrong,
+   * and wiping it took a live dish (and the QR code already printed for
+   * it) offline over routine photo housekeeping. New photos are new input,
+   * so addPhotos still resets the model for regeneration.
+   */
+  async removePhoto(
+    restaurantId: number,
+    id: number,
+    photoId: number,
+    user: AuthenticatedUser,
+  ) {
+    const item = await this.findOwnedWithPhotosOrThrow(restaurantId, id, user);
+    const target = item.photos.find((p) => p.id === photoId);
+    if (!target) {
+      throw new NotFoundException('Photo not found');
+    }
+
+    await this.prisma.menuItemPhoto.delete({ where: { id: photoId } });
+
+    const remaining = item.photos
+      .filter((p) => p.id !== photoId)
+      .sort((a, b) => a.sortOrder - b.sortOrder);
+    for (const [index, photo] of remaining.entries()) {
+      if (photo.sortOrder !== index) {
+        await this.prisma.menuItemPhoto.update({
+          where: { id: photo.id },
+          data: { sortOrder: index },
+        });
+      }
+    }
+
+    return this.prisma.menuItem.update({
+      where: { id },
+      include: PHOTOS_ORDERED,
+      data: { photoUrl: remaining[0]?.url ?? null },
     });
   }
 
@@ -81,10 +177,17 @@ export class MenuItemsService {
     dto: UpdateMenuItemDto,
   ) {
     await this.findOwnedOrThrow(restaurantId, id, user);
+    if (dto.name !== undefined) {
+      await this.assertNameAvailable(restaurantId, dto.name, id);
+    }
     if (dto.categoryId !== undefined) {
       await this.assertCategoryBelongs(restaurantId, dto.categoryId);
     }
-    return this.prisma.menuItem.update({ where: { id }, data: dto });
+    return this.prisma.menuItem.update({
+      where: { id },
+      include: PHOTOS_ORDERED,
+      data: dto,
+    });
   }
 
   async remove(restaurantId: number, id: number, user: AuthenticatedUser) {
@@ -103,6 +206,70 @@ export class MenuItemsService {
       throw new NotFoundException('Item not found');
     }
     return item;
+  }
+
+  /** Same as findOwnedOrThrow, but with the ordered photos relation loaded
+   * — a separate method (rather than a generic `include` param) so Prisma
+   * can statically type the returned `photos` array. */
+  private async findOwnedWithPhotosOrThrow(
+    restaurantId: number,
+    id: number,
+    user: AuthenticatedUser,
+  ) {
+    await this.restaurants.assertOwnership(restaurantId, user);
+    const item = await this.prisma.menuItem.findUnique({
+      where: { id },
+      include: PHOTOS_ORDERED,
+    });
+    if (!item || item.restaurantId !== restaurantId) {
+      throw new NotFoundException('Item not found');
+    }
+    return item;
+  }
+
+  /**
+   * One dish per name per restaurant (case-insensitive via the column's
+   * collation). Deliberately an application check, not a DB unique index:
+   * existing data may already hold duplicate dish names, and each has its
+   * own printed QR code, so they can't be merged or renamed automatically.
+   */
+  /** Enforces the restaurant's package `maxItems` (null = unlimited).
+   * Restaurants that never checked out have no package yet, so no limit
+   * applies here; generation is separately capped per user per day. */
+  private async assertUnderPlanItemLimit(restaurantId: number) {
+    const subscription = await this.prisma.subscription.findFirst({
+      where: { restaurantId },
+      orderBy: { createdAt: 'desc' },
+      select: { package: { select: { maxItems: true, name: true } } },
+    });
+    const maxItems = subscription?.package.maxItems;
+    if (maxItems == null) return;
+    const count = await this.prisma.menuItem.count({ where: { restaurantId } });
+    if (count >= maxItems) {
+      throw new ForbiddenException(
+        `Your ${subscription!.package.name} plan allows up to ${maxItems} dishes. Upgrade your plan to add more.`,
+      );
+    }
+  }
+
+  private async assertNameAvailable(
+    restaurantId: number,
+    name: string,
+    exceptId?: number,
+  ) {
+    const existing = await this.prisma.menuItem.findFirst({
+      where: {
+        restaurantId,
+        name,
+        ...(exceptId !== undefined ? { NOT: { id: exceptId } } : {}),
+      },
+      select: { id: true },
+    });
+    if (existing) {
+      throw new ConflictException(
+        `A dish named "${name}" is already on this restaurant's menu`,
+      );
+    }
   }
 
   private async assertCategoryBelongs(

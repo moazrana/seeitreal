@@ -1,20 +1,22 @@
 import {
   IsInt,
-  IsNumber,
   IsOptional,
-  IsPositive,
   IsString,
-  IsUrl,
   Max,
   MaxLength,
+  Min,
   MinLength,
 } from 'class-validator';
+import { MAX_DIMENSION_MM, MIN_DIMENSION_MM } from '@ar-menu/shared';
+import { Trim } from '../../common/decorators/trim.decorator';
 
 export class CreateMenuItemDto {
-  @IsOptional()
+  // Cuisine type — required: every dish belongs to one.
   @IsInt()
-  categoryId?: number;
+  @Min(1)
+  categoryId!: number;
 
+  @Trim()
   @IsString()
   @MinLength(1)
   @MaxLength(200)
@@ -25,18 +27,31 @@ export class CreateMenuItemDto {
   @MaxLength(2000)
   description?: string;
 
-  // Major currency units with up to 2 decimal places; persisted as DECIMAL,
-  // never float (spec §5).
-  @IsNumber({ maxDecimalPlaces: 2 })
-  @IsPositive()
-  @Max(1_000_000)
-  price!: number;
+  // No photoUrl here: photos only arrive through the upload endpoint
+  // (spec §7.5), which sets the URL to our own storage. Accepting a URL
+  // from the client would let any address be shown on the dish page and
+  // sent to Tripo for generation.
 
-  // Photo upload pipeline (with magic-byte verification, EXIF stripping,
-  // etc. per spec §7.5) lands in build-order step 2; for now items are
-  // created with a photoUrl that must already point at approved storage.
+  // Real-world dish dimensions in millimetres (TASK-real-world-ar-sizing.md
+  // §1-2), entered by owners in inches. All optional — a model generated
+  // without them is scaled to DEFAULT_FOOTPRINT_MM. Bounds: 10mm floor
+  // (a 5mm entry on staging produced a half-centimetre AR dish) and a
+  // 20-inch (508mm) ceiling — nothing served on a menu is bigger.
   @IsOptional()
-  @IsUrl()
-  @MaxLength(2048)
-  photoUrl?: string;
+  @IsInt()
+  @Min(MIN_DIMENSION_MM)
+  @Max(MAX_DIMENSION_MM)
+  widthMm?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(MIN_DIMENSION_MM)
+  @Max(MAX_DIMENSION_MM)
+  heightMm?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(MIN_DIMENSION_MM)
+  @Max(MAX_DIMENSION_MM)
+  lengthMm?: number;
 }

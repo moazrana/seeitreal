@@ -1,0 +1,520 @@
+import { createHash, randomUUID } from 'node:crypto';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { JwtService } from '@nestjs/jwt';
+import * as argon2 from 'argon2';
+import { RootAdminRole } from '@ar-menu/shared';
+import { PrismaService } from '../../prisma/prisma.service';
+import { RootAuditService } from '../audit/root-audit.service';
+import {
+  ROOT_CHALLENGE_AUDIENCE,
+  type RootTotpChallengePayload,
+} from '../types/root-totp-challenge-payload.interface';
+import {
+  ROOT_ACCESS_AUDIENCE,
+  type RootJwtPayload,
+} from '../types/root-jwt-payload.interface';
+import type { RootLoginDto } from './dto/root-login.dto';
+import type { RootTotpVerifyDto } from './dto/root-totp-verify.dto';
+import { TotpService } from './totp.service';
+
+const MAX_FAILED_LOGIN_ATTEMPTS = 5;
+const LOCKOUT_MINUTES = 15;
+// Short-lived and single-purpose, not a session — just long enough to type
+// a 6-digit code from an authenticator app.
+const CHALLENGE_TTL_MS = 5 * 60_000;
+const LOCKED_MESSAGE =
+  'Account temporarily locked due to repeated failed logins';
+// A pre-computed argon2id hash of a random value, used only to keep
+// login's timing profile the same for "unknown email" as for "wrong
+// password" — never actually matches a real password. Same technique as
+// AuthService, deliberately a different literal (no reason to share one).
+const DUMMY_PASSWORD_HASH =
+  '$argon2id$v=19$m=65536,t=3,p=4$cm9vdGFwcHNhbHRyb290$9y2Z6n4m0e2s7RG3t1z0qRqG3g1n2p8m7c0y4r8s6u1';
+
+export interface PublicRootAdmin {
+  id: number;
+  email: string;
+  role: RootAdminRole;
+}
+
+type ChallengePurpose = RootTotpChallengePayload['purpose'];
+
+@Injectable()
+export class RootAuthService {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly jwt: JwtService,
+    private readonly config: ConfigService,
+    private readonly totp: TotpService,
+    private readonly audit: RootAuditService,
+  ) {}
+
+  /** Step 1: password check. Returns either a TOTP-setup challenge (first
+   * login ever) or a TOTP-verify challenge (every login after) — never a
+   * full session directly, since 2FA is mandatory (spec §5). */
+  async login(dto: RootLoginDto, ip: string | undefined) {
+    const admin = await this.prisma.rootAdminUser.findUnique({
+      where: { email: dto.email },
+    });
+
+    if (!admin) {
+      await argon2.verify(DUMMY_PASSWORD_HASH, dto.password).catch(() => false);
+      throw new UnauthorizedException('Invalid email or password');
+    }
+
+    if (this.isLocked(admin)) {
+      throw new UnauthorizedException(LOCKED_MESSAGE);
+    }
+
+    const valid = await argon2
+      .verify(admin.passwordHash, dto.password)
+      .catch(() => false);
+    if (!valid) {
+      await this.registerFailedLogin(admin.id);
+      await this.audit.log(
+        admin.id,
+        'root_login_failed',
+        undefined,
+        undefined,
+        undefined,
+        ip,
+      );
+      throw new UnauthorizedException('Invalid email or password');
+    }
+
+    if (admin.failedLoginAttempts > 0 || admin.lockedUntil) {
+      await this.prisma.rootAdminUser.update({
+        where: { id: admin.id },
+        data: { failedLoginAttempts: 0, lockedUntil: null },
+      });
+    }
+
+    if (!admin.totpEnabled) {
+      // First-ever login: generate a fresh secret and persist it (still
+      // `totpEnabled: false` until confirmed) so the enrollment challenge
+      // token never needs to carry the secret itself — a bearer token is
+      // a worse place to put sensitive material than the DB.
+      //
+      // Reuse a secret that's already pending instead of minting a new one
+      // every time: an admin who scans the QR and then reloads the setup
+      // page (losing the router state that carried the otpauthUrl) or
+      // simply logs in again before finishing enrollment would otherwise
+      // silently get a *different* secret each attempt, so the code from
+      // the entry they already scanned into their authenticator app would
+      // never match what's in the DB — indistinguishable from a real
+      // "invalid code" bug.
+      const secret = admin.totpSecretEncrypted
+        ? this.totp.decryptSecret(admin.totpSecretEncrypted)
+        : this.totp.generateSecret();
+      if (!admin.totpSecretEncrypted) {
+        await this.prisma.rootAdminUser.update({
+          where: { id: admin.id },
+          data: { totpSecretEncrypted: this.totp.encryptSecret(secret) },
+        });
+      }
+      const token = await this.signChallenge(admin.id, 'totp_setup');
+      return {
+        status: 'totp_setup_required' as const,
+        token,
+        otpauthUrl: this.totp.keyUri(admin.email, secret),
+      };
+    }
+
+    const token = await this.signChallenge(admin.id, 'totp_login');
+    return { status: 'totp_required' as const, token };
+  }
+
+  /** Step 2 (first login only): confirm the enrollment code, activate
+   * TOTP, issue backup codes (shown once), then issue a full session. */
+  async verifyTotpSetup(dto: RootTotpVerifyDto, ip: string | undefined) {
+    const payload = await this.verifyChallenge(dto.token, 'totp_setup');
+    const admin = await this.requireChallengeAdmin(payload);
+    if (!admin.totpSecretEncrypted) {
+      throw new UnauthorizedException('No pending TOTP setup for this account');
+    }
+
+    const secret = this.totp.decryptSecret(admin.totpSecretEncrypted);
+    if (!(await this.acceptTotpCode(admin.id, dto.code, secret))) {
+      await this.registerFailedLogin(admin.id);
+      await this.audit.log(
+        admin.id,
+        'root_totp_failed',
+        undefined,
+        undefined,
+        undefined,
+        ip,
+      );
+      throw new UnauthorizedException('Invalid verification code');
+    }
+    await this.consumeChallenge(payload);
+
+    const { raw: backupCodes, hashedJson } =
+      await this.totp.generateBackupCodes();
+    await this.prisma.rootAdminUser.update({
+      where: { id: admin.id },
+      data: {
+        totpEnabled: true,
+        backupCodesHashed: hashedJson,
+        failedLoginAttempts: 0,
+        lockedUntil: null,
+      },
+    });
+    await this.audit.log(
+      admin.id,
+      'root_totp_enabled',
+      undefined,
+      undefined,
+      undefined,
+      ip,
+    );
+
+    const tokens = await this.issueSession(
+      admin.id,
+      admin.email,
+      admin.role as RootAdminRole,
+    );
+    await this.audit.log(
+      admin.id,
+      'root_login',
+      undefined,
+      undefined,
+      undefined,
+      ip,
+    );
+    return { admin: this.toPublic(admin), backupCodes, ...tokens };
+  }
+
+  /** Step 2 (every login after enrollment): verify a TOTP code or a
+   * single-use backup code, then issue a full session. */
+  async verifyTotp(dto: RootTotpVerifyDto, ip: string | undefined) {
+    const payload = await this.verifyChallenge(dto.token, 'totp_login');
+    const admin = await this.requireChallengeAdmin(payload);
+    if (!admin.totpEnabled || !admin.totpSecretEncrypted) {
+      throw new UnauthorizedException('TOTP is not enabled for this account');
+    }
+
+    const secret = this.totp.decryptSecret(admin.totpSecretEncrypted);
+    let ok = await this.acceptTotpCode(admin.id, dto.code, secret);
+
+    if (!ok) {
+      const { valid, remainingJson } = await this.totp.verifyBackupCode(
+        dto.code,
+        admin.backupCodesHashed,
+      );
+      if (valid) {
+        ok = true;
+        await this.prisma.rootAdminUser.update({
+          where: { id: admin.id },
+          data: { backupCodesHashed: remainingJson },
+        });
+        await this.audit.log(
+          admin.id,
+          'root_backup_code_used',
+          undefined,
+          undefined,
+          undefined,
+          ip,
+        );
+      }
+    }
+
+    if (!ok) {
+      await this.registerFailedLogin(admin.id);
+      await this.audit.log(
+        admin.id,
+        'root_totp_failed',
+        undefined,
+        undefined,
+        undefined,
+        ip,
+      );
+      throw new UnauthorizedException('Invalid verification code');
+    }
+    await this.consumeChallenge(payload);
+
+    if (admin.failedLoginAttempts > 0 || admin.lockedUntil) {
+      await this.prisma.rootAdminUser.update({
+        where: { id: admin.id },
+        data: { failedLoginAttempts: 0, lockedUntil: null },
+      });
+    }
+
+    const tokens = await this.issueSession(
+      admin.id,
+      admin.email,
+      admin.role as RootAdminRole,
+    );
+    await this.audit.log(
+      admin.id,
+      'root_login',
+      undefined,
+      undefined,
+      undefined,
+      ip,
+    );
+    return { admin: this.toPublic(admin), ...tokens };
+  }
+
+  async refresh(rawToken: string) {
+    let payload: RootJwtPayload;
+    try {
+      payload = await this.jwt.verifyAsync<RootJwtPayload>(rawToken, {
+        secret: this.config.get<string>('ROOT_JWT_REFRESH_SECRET'),
+      });
+    } catch {
+      throw new UnauthorizedException('Invalid or expired refresh token');
+    }
+    if (payload.typ !== 'refresh') {
+      throw new UnauthorizedException('Invalid or expired refresh token');
+    }
+
+    const tokenHash = this.hashToken(rawToken);
+    const stored = await this.prisma.rootRefreshToken.findFirst({
+      where: { adminId: payload.sub, tokenHash },
+    });
+    if (!stored) {
+      throw new UnauthorizedException('Invalid or expired refresh token');
+    }
+    if (stored.revoked) {
+      // A rotated-out token came back: it was stolen or replayed. Revoke
+      // every session for this admin so the attacker's copy dies too.
+      await this.revokeAllSessions(payload.sub, 'root_refresh_token_reuse');
+      throw new UnauthorizedException('Invalid or expired refresh token');
+    }
+    if (stored.expiresAt < new Date()) {
+      throw new UnauthorizedException('Invalid or expired refresh token');
+    }
+
+    // Rotation: the presented token is single-use. The conditional update
+    // means only one of two concurrent requests with the same token wins;
+    // the loser is treated as reuse.
+    const { count } = await this.prisma.rootRefreshToken.updateMany({
+      where: { id: stored.id, revoked: false },
+      data: { revoked: true },
+    });
+    if (count !== 1) {
+      await this.revokeAllSessions(payload.sub, 'root_refresh_token_reuse');
+      throw new UnauthorizedException('Invalid or expired refresh token');
+    }
+
+    const admin = await this.prisma.rootAdminUser.findUnique({
+      where: { id: payload.sub },
+    });
+    if (!admin) {
+      throw new UnauthorizedException('Invalid or expired refresh token');
+    }
+
+    const tokens = await this.issueSession(
+      admin.id,
+      admin.email,
+      admin.role as RootAdminRole,
+    );
+    return { admin: this.toPublic(admin), ...tokens };
+  }
+
+  async logout(rawToken: string | undefined) {
+    if (!rawToken) return;
+    const tokenHash = this.hashToken(rawToken);
+    await this.prisma.rootRefreshToken.updateMany({
+      where: { tokenHash, revoked: false },
+      data: { revoked: true },
+    });
+  }
+
+  private async signChallenge(
+    adminId: number,
+    purpose: ChallengePurpose,
+  ): Promise<string> {
+    const jti = randomUUID();
+    // Only the newest challenge is valid: storing its jti invalidates any
+    // earlier challenge token for this admin.
+    await this.prisma.rootAdminUser.update({
+      where: { id: adminId },
+      data: { totpChallengeJti: jti },
+    });
+    const payload: RootTotpChallengePayload = {
+      sub: adminId,
+      purpose,
+      typ: 'totp_challenge',
+      jti,
+    };
+    return this.jwt.signAsync(payload, {
+      secret: this.config.get<string>('ROOT_JWT_ACCESS_SECRET'),
+      audience: ROOT_CHALLENGE_AUDIENCE,
+      expiresIn: Math.floor(CHALLENGE_TTL_MS / 1000),
+    });
+  }
+
+  private async verifyChallenge(
+    token: string,
+    expectedPurpose: ChallengePurpose,
+  ): Promise<RootTotpChallengePayload> {
+    let payload: RootTotpChallengePayload;
+    try {
+      payload = await this.jwt.verifyAsync<RootTotpChallengePayload>(token, {
+        secret: this.config.get<string>('ROOT_JWT_ACCESS_SECRET'),
+        audience: ROOT_CHALLENGE_AUDIENCE,
+      });
+    } catch {
+      throw new UnauthorizedException('Invalid or expired challenge');
+    }
+    if (
+      payload.typ !== 'totp_challenge' ||
+      payload.purpose !== expectedPurpose ||
+      !payload.jti
+    ) {
+      throw new UnauthorizedException('Invalid or expired challenge');
+    }
+    return payload;
+  }
+
+  /** Loads the challenge's admin, enforcing lockout at the 2FA step too
+   * (wrong codes count toward it) and rejecting any challenge that is not
+   * the admin's current, unused one. */
+  private async requireChallengeAdmin(payload: RootTotpChallengePayload) {
+    const admin = await this.prisma.rootAdminUser.findUnique({
+      where: { id: payload.sub },
+    });
+    if (!admin || admin.totpChallengeJti !== payload.jti) {
+      throw new UnauthorizedException('Invalid or expired challenge');
+    }
+    if (this.isLocked(admin)) {
+      throw new UnauthorizedException(LOCKED_MESSAGE);
+    }
+    return admin;
+  }
+
+  /** Atomically marks the challenge used, so two concurrent requests with
+   * the same token can't both turn it into a session. */
+  private async consumeChallenge(payload: RootTotpChallengePayload) {
+    const { count } = await this.prisma.rootAdminUser.updateMany({
+      where: { id: payload.sub, totpChallengeJti: payload.jti },
+      data: { totpChallengeJti: null },
+    });
+    if (count !== 1) {
+      throw new UnauthorizedException('Invalid or expired challenge');
+    }
+  }
+
+  /** Accepts a TOTP code at most once: the matched time step must be newer
+   * than the last one this admin used, claimed atomically so two
+   * concurrent requests with the same code can't both pass. */
+  private async acceptTotpCode(
+    adminId: number,
+    code: string,
+    secret: string,
+  ): Promise<boolean> {
+    const step = this.totp.matchedStep(code, secret);
+    if (step === null) return false;
+    const { count } = await this.prisma.rootAdminUser.updateMany({
+      where: {
+        id: adminId,
+        OR: [{ lastTotpStep: null }, { lastTotpStep: { lt: step } }],
+      },
+      data: { lastTotpStep: step },
+    });
+    return count === 1;
+  }
+
+  private async revokeAllSessions(adminId: number, auditAction: string) {
+    await this.prisma.rootRefreshToken.updateMany({
+      where: { adminId, revoked: false },
+      data: { revoked: true },
+    });
+    await this.audit.log(adminId, auditAction);
+  }
+
+  private isLocked(admin: { lockedUntil: Date | null }): boolean {
+    return !!admin.lockedUntil && admin.lockedUntil > new Date();
+  }
+
+  /** Atomic increment, so parallel wrong guesses can't undercount. */
+  private async registerFailedLogin(adminId: number) {
+    const { failedLoginAttempts } = await this.prisma.rootAdminUser.update({
+      where: { id: adminId },
+      data: { failedLoginAttempts: { increment: 1 } },
+      select: { failedLoginAttempts: true },
+    });
+    if (failedLoginAttempts >= MAX_FAILED_LOGIN_ATTEMPTS) {
+      await this.prisma.rootAdminUser.update({
+        where: { id: adminId },
+        data: {
+          lockedUntil: new Date(Date.now() + LOCKOUT_MINUTES * 60_000),
+        },
+      });
+    }
+  }
+
+  private async issueSession(
+    adminId: number,
+    email: string,
+    role: RootAdminRole,
+  ) {
+    const accessPayload: RootJwtPayload = {
+      sub: adminId,
+      email,
+      role,
+      typ: 'access',
+    };
+    const refreshPayload: RootJwtPayload = { ...accessPayload, typ: 'refresh' };
+
+    const accessExpiresIn = this.config.get<string>(
+      'ROOT_JWT_ACCESS_EXPIRES_IN',
+    )!;
+    const accessToken = await this.jwt.signAsync(accessPayload, {
+      secret: this.config.get<string>('ROOT_JWT_ACCESS_SECRET'),
+      audience: ROOT_ACCESS_AUDIENCE,
+      expiresIn: Math.floor(this.parseDurationMs(accessExpiresIn) / 1000),
+    });
+
+    const refreshExpiresIn = this.config.get<string>(
+      'ROOT_JWT_REFRESH_EXPIRES_IN',
+    )!;
+    const refreshToken = await this.jwt.signAsync(refreshPayload, {
+      secret: this.config.get<string>('ROOT_JWT_REFRESH_SECRET'),
+      expiresIn: Math.floor(this.parseDurationMs(refreshExpiresIn) / 1000),
+    });
+
+    await this.prisma.rootRefreshToken.create({
+      data: {
+        adminId,
+        tokenHash: this.hashToken(refreshToken),
+        expiresAt: new Date(
+          Date.now() + this.parseDurationMs(refreshExpiresIn),
+        ),
+      },
+    });
+
+    return { accessToken, refreshToken };
+  }
+
+  private hashToken(token: string): string {
+    return createHash('sha256').update(token).digest('hex');
+  }
+
+  private parseDurationMs(duration: string): number {
+    const match = /^(\d+)([smhd])$/.exec(duration);
+    if (!match) return 12 * 60 * 60_000;
+    const value = Number(match[1]);
+    const multipliers: Record<string, number> = {
+      s: 1000,
+      m: 60_000,
+      h: 60 * 60_000,
+      d: 24 * 60 * 60_000,
+    };
+    return value * multipliers[match[2]];
+  }
+
+  private toPublic(admin: {
+    id: number;
+    email: string;
+    role: string;
+  }): PublicRootAdmin {
+    return {
+      id: admin.id,
+      email: admin.email,
+      role: admin.role as RootAdminRole,
+    };
+  }
+}

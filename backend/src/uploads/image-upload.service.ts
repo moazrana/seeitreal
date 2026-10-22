@@ -6,9 +6,15 @@ import {
   ALLOWED_DECODED_FORMATS,
   ALLOWED_EXTENSIONS,
   ALLOWED_MIME_TYPES,
+  IMAGE_OUTPUT_PROFILES,
   MAX_IMAGE_DIMENSION_PX,
+  MAX_INPUT_PIXELS,
   MAX_UPLOAD_BYTES,
 } from './image-upload.constants';
+import type { ImageUploadPurpose } from './image-upload.constants';
+
+const CONTENT_TYPES = { jpeg: 'image/jpeg', webp: 'image/webp' } as const;
+const FILE_EXTENSIONS = { jpeg: 'jpg', webp: 'webp' } as const;
 
 /**
  * Shared image-upload pipeline for dish photos and restaurant logos —
@@ -16,11 +22,13 @@ import {
  *  1. Whitelist by extension AND MIME (client-supplied — first-pass only).
  *  2. Verify real content via sharp's decode (magic bytes), independent of
  *     what the client claimed.
- *  3. Enforce max size (multer, before this runs) and max dimensions.
- *  4. Re-encode to a random server-generated key — never the client
- *     filename — which also strips EXIF/metadata (sharp only carries
- *     metadata forward if you explicitly call `.withMetadata()`, which we
- *     never do).
+ *  3. Enforce max size (multer, before this runs), max dimensions, and a
+ *     decoded-pixel cap (decompression-bomb guard).
+ *  4. Normalize (documents/TASK-image-optimization.md): apply the EXIF
+ *     orientation, resize to the purpose's max edge, and re-encode — which
+ *     strips EXIF/metadata (sharp only carries metadata forward if you
+ *     explicitly call `.withMetadata()`, which we never do) — then store
+ *     under a random server-generated key, never the client filename.
  *  5. Store outside the web root with no execute permission (see
  *     StorageModule / LocalDiskStorageProvider) — never executed.
  * Every rejection is logged (spec §7.7) — filename/mimetype/reason only,
@@ -34,13 +42,16 @@ export class ImageUploadService {
 
   async processAndStore(
     file: Express.Multer.File,
-    keyPrefix: string,
+    purpose: ImageUploadPurpose,
   ): Promise<{ key: string; url: string }> {
     this.assertClientClaimsAllowed(file);
 
     let metadata: sharp.Metadata;
     try {
-      metadata = await sharp(file.buffer, { failOn: 'error' }).metadata();
+      metadata = await sharp(file.buffer, {
+        failOn: 'error',
+        limitInputPixels: MAX_INPUT_PIXELS,
+      }).metadata();
     } catch {
       throw this.reject(file, 'file is not a decodable image');
     }
@@ -71,26 +82,42 @@ export class ImageUploadService {
       );
     }
 
-    // Re-encoding (rather than storing the original bytes) strips EXIF/
-    // metadata and normalizes the output format regardless of input.
-    const output = await sharp(file.buffer)
+    const profile = IMAGE_OUTPUT_PROFILES[purpose];
+    const pipeline = sharp(file.buffer, {
+      failOn: 'error',
+      limitInputPixels: MAX_INPUT_PIXELS,
+    })
+      // Bake in the EXIF orientation *before* metadata is dropped — a
+      // sideways phone photo would otherwise stay sideways, which confuses
+      // 3D reconstruction.
+      .rotate()
       .resize({
-        width: MAX_IMAGE_DIMENSION_PX,
-        height: MAX_IMAGE_DIMENSION_PX,
+        width: profile.maxEdgePx,
+        height: profile.maxEdgePx,
         fit: 'inside',
         withoutEnlargement: true,
-      })
-      .webp({ quality: 85 })
-      .toBuffer();
+      });
+    const output = await (
+      profile.format === 'jpeg'
+        ? // JPEG has no alpha: flatten transparent PNG/WebP areas onto
+          // white instead of sharp's default black.
+          pipeline
+            .flatten({ background: '#ffffff' })
+            .jpeg({ quality: profile.quality, mozjpeg: true })
+        : pipeline.webp({ quality: profile.quality })
+    ).toBuffer();
 
-    const key = this.storage.generateKey(keyPrefix, 'webp');
+    const key = this.storage.generateKey(
+      purpose,
+      FILE_EXTENSIONS[profile.format],
+    );
     this.logger.debug(
       `Storing upload as ${key} (${output.length} bytes, from ${file.size} original)`,
     );
     return this.storage.putObject({
       key,
       body: output,
-      contentType: 'image/webp',
+      contentType: CONTENT_TYPES[profile.format],
     });
   }
 

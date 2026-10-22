@@ -1,0 +1,41 @@
+.dialog {
+  width: min(400px, calc(100vw - 32px));
+  padding: 1.25rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow-elev);
+}
+
+.dialog::backdrop {
+  background: var(--overlay);
+}
+
+.title {
+  margin: 0 0 0.5rem;
+  font-size: 1.1rem;
+}
+
+.message {
+  margin: 0 0 1.25rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.6rem;
+}
+
+.cancel {
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+}
+
+.danger {
+  background: var(--danger);
+  color: var(--surface);
+}

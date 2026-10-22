@@ -21,6 +21,12 @@ enum UserRole {
   admin
 }
 
+// Only one business type exists today; kept as an enum (not a hardcoded
+// string) so a second type can be added later without a shape change.
+enum BusinessType {
+  restaurant
+}
+
 enum ArStatus {
   pending
   generating
@@ -45,16 +51,49 @@ enum AnalyticsEventType {
   ar_launch
 }
 
-enum SubscriptionPlan {
-  starter
-  growth
-  pro
+enum SubscriptionInterval {
+  monthly
+  yearly
 }
 
 enum SubscriptionStatus {
   active
   past_due
+  // Grace period elapsed with no successful payment (documents/
+  // USER-APP-subscription-and-ui.md §4.3) — SubscriptionGraceCron is the
+  // only thing that sets this; gateways don't send an explicit "expired"
+  // event. This is the one status that gates the public AR viewer.
+  expired
   canceled
+}
+
+/// Which payment gateway a subscription is billed through (documents/
+/// USER-APP-subscription-and-ui.md §3) — routed by billing country at
+/// checkout (PK -> safepay, else stripe), stored so webhooks/renewal know
+/// which adapter owns a given Subscription row.
+enum PaymentGateway {
+  stripe
+  safepay
+}
+
+enum PromoDiscountType {
+  percent
+  fixed
+}
+
+enum PromoAppliesTo {
+  subscription
+  setup
+  deal
+}
+
+/// Currency for a fixed-amount promo discount (spec: rootApp/documents/
+/// ROOT-APP-subscriptions-and-promos.md §3). Null on the PromoCode row for
+/// percent discounts, required for fixed ones — matches SubscriptionPackage's
+/// pricePkr/priceUsd dual-currency split.
+enum PromoCurrency {
+  PKR
+  USD
 }
 
 enum ChargeType {
@@ -99,6 +138,14 @@ enum FeedbackStatus {
   reviewed
 }
 
+/// Root App admin roles (rootApp/ROOT-APP-Implementation-Spec.md §3.9).
+/// Separate from UserRole.admin — RootAdminUser is a fully independent
+/// identity/session from customer-facing User accounts (spec §2, §5).
+enum RootAdminRole {
+  superadmin
+  support
+}
+
 // ---------------------------------------------------------------------------
 // Models
 // ---------------------------------------------------------------------------
@@ -123,6 +170,7 @@ model User {
   ticketMessages          TicketMessage[]
   feedback                Feedback[]
   adminAuditLogs          AdminAuditLog[]
+  modelGenerations        ModelGeneration[]
 
   @@map("users")
 }
@@ -146,12 +194,12 @@ model RefreshToken {
 /// One-time token emailed to a user to verify their address. Only a hash is
 /// stored; the raw token is what goes in the emailed link.
 model EmailVerificationToken {
-  id        Int      @id @default(autoincrement())
-  userId    Int      @map("user_id")
-  tokenHash String   @map("token_hash") @db.VarChar(255)
+  id        Int       @id @default(autoincrement())
+  userId    Int       @map("user_id")
+  tokenHash String    @map("token_hash") @db.VarChar(255)
   usedAt    DateTime? @map("used_at")
-  expiresAt DateTime @map("expires_at")
-  createdAt DateTime @default(now()) @map("created_at")
+  expiresAt DateTime  @map("expires_at")
+  createdAt DateTime  @default(now()) @map("created_at")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -162,12 +210,12 @@ model EmailVerificationToken {
 /// One-time token emailed to a user to reset their password. Only a hash is
 /// stored; the raw token is what goes in the emailed link.
 model PasswordResetToken {
-  id        Int      @id @default(autoincrement())
-  userId    Int      @map("user_id")
-  tokenHash String   @map("token_hash") @db.VarChar(255)
+  id        Int       @id @default(autoincrement())
+  userId    Int       @map("user_id")
+  tokenHash String    @map("token_hash") @db.VarChar(255)
   usedAt    DateTime? @map("used_at")
-  expiresAt DateTime @map("expires_at")
-  createdAt DateTime @default(now()) @map("created_at")
+  expiresAt DateTime  @map("expires_at")
+  createdAt DateTime  @default(now()) @map("created_at")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -176,25 +224,38 @@ model PasswordResetToken {
 }
 
 model Restaurant {
-  id          Int               @id @default(autoincrement())
-  ownerUserId Int               @map("owner_user_id")
-  name        String            @db.VarChar(200)
-  slug        String            @unique @db.VarChar(200)
-  logoUrl     String?           @map("logo_url") @db.VarChar(2048)
-  planId      SubscriptionPlan? @map("plan_id")
-  createdAt   DateTime          @default(now()) @map("created_at")
-  updatedAt   DateTime          @updatedAt @map("updated_at")
+  id              Int          @id @default(autoincrement())
+  ownerUserId     Int          @map("owner_user_id")
+  name            String       @db.VarChar(200)
+  slug            String       @unique @db.VarChar(200)
+  logoUrl         String?      @map("logo_url") @db.VarChar(2048)
+  businessType    BusinessType @default(restaurant) @map("business_type")
+  // Nullable: existing restaurants predate this column. Required going
+  // forward via CreateRestaurantDto/SignupDto, not a DB constraint, so we
+  // don't have to fabricate addresses for pre-existing rows.
+  address         String?      @db.VarChar(500)
+  // Root App restaurant control (rootApp/ROOT-APP-Implementation-Spec.md
+  // §3.2). Suspending blocks the owner's dashboard/API access AND takes
+  // every public page for this restaurant offline — see
+  // RestaurantsService.assertOwnership and ArViewerService.
+  suspended       Boolean      @default(false)
+  suspendedAt     DateTime?    @map("suspended_at")
+  suspendedReason String?      @map("suspended_reason") @db.VarChar(500)
+  createdAt       DateTime     @default(now()) @map("created_at")
+  updatedAt       DateTime     @updatedAt @map("updated_at")
 
-  owner           User             @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
-  categories      MenuCategory[]
-  items           MenuItem[]
-  deals           Deal[]
-  qrCodes         QrCode[]
-  analyticsEvents AnalyticsEvent[]
-  subscriptions   Subscription[]
-  charges         Charge[]
-  supportTickets  SupportTicket[]
-  feedback        Feedback[]
+  owner            User              @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  categories       MenuCategory[]
+  items            MenuItem[]
+  deals            Deal[]
+  qrCodes          QrCode[]
+  analyticsEvents  AnalyticsEvent[]
+  subscriptions    Subscription[]
+  charges          Charge[]
+  supportTickets   SupportTicket[]
+  feedback         Feedback[]
+  promoRedemptions PromoRedemption[]
+  modelGenerations ModelGeneration[]
 
   @@index([ownerUserId])
   @@map("restaurants")
@@ -211,44 +272,98 @@ model MenuCategory {
   restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
   items      MenuItem[]
 
+  // One cuisine type per name per restaurant. The column's
+  // utf8mb4_unicode_ci collation makes this case-insensitive.
+  @@unique([restaurantId, name])
   @@index([restaurantId])
   @@map("menu_categories")
 }
 
 model MenuItem {
-  id           Int      @id @default(autoincrement())
-  restaurantId Int      @map("restaurant_id")
-  categoryId   Int?     @map("category_id")
-  name         String   @db.VarChar(200)
-  description  String?  @db.Text
-  // Money as DECIMAL, never float (spec §5).
-  price        Decimal  @db.Decimal(10, 2)
-  photoUrl     String?  @map("photo_url") @db.VarChar(2048)
+  id                   Int       @id @default(autoincrement())
+  restaurantId         Int       @map("restaurant_id")
+  // Cuisine type — required (every dish belongs to one). RESTRICT on the
+  // FK: a cuisine type can't be deleted while dishes still use it.
+  categoryId           Int       @map("category_id")
+  name                 String    @db.VarChar(200)
+  description          String?   @db.Text
+  // Denormalized copy of photos[0].url (the "display" photo) — kept so the
+  // diner AR viewer and dashboard list can read a single field without an
+  // extra join. Source of truth for the *set* of input photos is the
+  // `photos` relation below (documents/3d-model-enhancement.md §1).
+  photoUrl             String?   @map("photo_url") @db.VarChar(2048)
   // AI-rendered preview thumbnail from Tripo's `rendered_image` output
   // (spec §11.2) — separate from the owner's original upload.
-  previewImageUrl String? @map("preview_image_url") @db.VarChar(2048)
-  modelGlbUrl  String?  @map("model_glb_url") @db.VarChar(2048)
-  modelUsdzUrl String?  @map("model_usdz_url") @db.VarChar(2048)
-  arStatus     ArStatus @default(pending) @map("ar_status")
-  publicSlug   String   @unique @map("public_slug") @db.VarChar(200)
+  previewImageUrl      String?   @map("preview_image_url") @db.VarChar(2048)
+  modelGlbUrl          String?   @map("model_glb_url") @db.VarChar(2048)
+  modelUsdzUrl         String?   @map("model_usdz_url") @db.VarChar(2048)
+  // Real-world dish dimensions in millimetres, entered by the owner
+  // (TASK-real-world-ar-sizing.md). Nullable — an item may be measured
+  // after creation — but required before the item can go `live` (see
+  // AdminService.approve). Used to uniform-scale the generated GLB to
+  // true size before USDZ conversion (spec §11.3 extension).
+  widthMm              Int?      @map("width_mm")
+  heightMm             Int?      @map("height_mm")
+  lengthMm             Int?      @map("length_mm")
+  arStatus             ArStatus  @default(pending) @map("ar_status")
+  publicSlug           String    @unique @map("public_slug") @db.VarChar(200)
   // Tripo's task_id for the in-flight/last generation job (spec §11.4:
   // "log the task_id for every job"). Used by the poll fallback and to
   // correlate webhook callbacks.
-  tripoTaskId  String?  @map("tripo_task_id") @db.VarChar(255)
+  tripoTaskId          String?   @map("tripo_task_id") @db.VarChar(255)
   // Admin's note when rejecting an item out of the QA queue (spec §10.3).
-  qaNote       String?  @map("qa_note") @db.Text
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
+  qaNote               String?   @map("qa_note") @db.Text
+  // What the admin flagged when rejecting or regenerating, as a comma list
+  // of RegenerationIssue values. Tripo takes no text prompt, so these (not
+  // the free-text note) steer the next generation's settings.
+  qaIssues             String?   @map("qa_issues") @db.VarChar(100)
+  // Root App item control (rootApp/ROOT-APP-Implementation-Spec.md §3.3).
+  // Only pulls the item's public AR page — the owner keeps full edit
+  // access, unlike a suspended restaurant.
+  hiddenByAdmin        Boolean   @default(false) @map("hidden_by_admin")
+  // When the dish's QR code was first issued — set the first time the item
+  // goes live and never cleared. The QR encodes the stable public URL, so
+  // once printed it must stay available to the owner even while the model
+  // is being regenerated (the viewer shows a "coming soon" notice then).
+  qrIssuedAt           DateTime? @map("qr_issued_at")
+  // Admin preview link for a model awaiting QA (PreviewLinkService). Only
+  // the random nonce is stored; the link's token is an HMAC over it, so a
+  // database leak can't produce a working link. One live link per item.
+  previewLinkNonce     String?   @map("preview_link_nonce") @db.VarChar(64)
+  previewLinkExpiresAt DateTime? @map("preview_link_expires_at")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
 
-  restaurant Restaurant    @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
-  category   MenuCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
-  dealItems  DealItem[]
+  restaurant  Restaurant        @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  category    MenuCategory      @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  dealItems   DealItem[]
+  photos      MenuItemPhoto[]
+  generations ModelGeneration[]
 
   @@index([restaurantId])
   @@index([categoryId])
   @@index([arStatus])
   @@index([tripoTaskId])
   @@map("menu_items")
+}
+
+/// Up to 5 input photos per dish (documents/3d-model-enhancement.md §1) —
+/// 1 photo drives Tripo's single image-to-3D endpoint, 2-5 drive its
+/// multiview endpoint (reconstructed from real angles instead of the AI
+/// hallucinating unseen sides). `sortOrder` is contiguous 0..n-1 and index
+/// 0 is always the item's display photo (mirrored onto MenuItem.photoUrl).
+model MenuItemPhoto {
+  id         Int      @id @default(autoincrement())
+  menuItemId Int      @map("menu_item_id")
+  url        String   @db.VarChar(2048)
+  sortOrder  Int      @map("sort_order")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  menuItem MenuItem @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+
+  @@unique([menuItemId, sortOrder])
+  @@index([menuItemId])
+  @@map("menu_item_photos")
 }
 
 model Deal {
@@ -322,17 +437,30 @@ model AnalyticsEvent {
 model Subscription {
   id                    Int                @id @default(autoincrement())
   restaurantId          Int                @map("restaurant_id")
-  plan                  SubscriptionPlan
+  // Which SubscriptionPackage this restaurant is on (rootApp/documents/
+  // ROOT-APP-subscriptions-and-promos.md §4). Restrict, not Cascade: a
+  // package with live subscriptions must be soft-retired (see
+  // RootPackagesService), never hard-deleted out from under them.
+  packageId             Int                @map("package_id")
+  gateway               PaymentGateway
   status                SubscriptionStatus @default(active)
   currentPeriodEnd      DateTime           @map("current_period_end")
+  // Set when a webhook marks the subscription past_due (documents/
+  // USER-APP-subscription-and-ui.md §4.2: "grace period... value from
+  // config"); SubscriptionGraceCron flips status to expired once this
+  // passes. Null while active/expired/canceled.
+  graceUntil            DateTime?          @map("grace_until")
   gatewayCustomerId     String?            @map("gateway_customer_id") @db.VarChar(255)
   gatewaySubscriptionId String?            @map("gateway_subscription_id") @db.VarChar(255)
   createdAt             DateTime           @default(now()) @map("created_at")
   updatedAt             DateTime           @updatedAt @map("updated_at")
 
-  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  restaurant Restaurant          @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  package    SubscriptionPackage @relation(fields: [packageId], references: [id], onDelete: Restrict)
 
   @@index([restaurantId])
+  @@index([packageId])
+  @@index([gatewaySubscriptionId])
   @@map("subscriptions")
 }
 
@@ -349,10 +477,94 @@ model Charge {
   createdAt    DateTime     @default(now()) @map("created_at")
   updatedAt    DateTime     @updatedAt @map("updated_at")
 
-  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  restaurant       Restaurant        @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  promoRedemptions PromoRedemption[]
 
   @@index([restaurantId])
   @@map("charges")
+}
+
+// ---------------------------------------------------------------------------
+// Subscription packages & promo codes (rootApp/documents/
+// ROOT-APP-subscriptions-and-promos.md) — plan/discount definitions the
+// User App sells against. Managed exclusively from the Root App, behind
+// RootAdminRole.SUPERADMIN (§5: "Admin-only; superadmin required for
+// delete/retire and price changes" — kept superadmin-only end to end here
+// since the Implementation Spec scopes the "support" role to tickets/
+// feedback only, explicitly excluding billing).
+// ---------------------------------------------------------------------------
+
+model SubscriptionPackage {
+  id        Int                  @id @default(autoincrement())
+  name      String               @db.VarChar(100)
+  // Minor units (paisa / cents) — never store a float for money.
+  pricePkr  Int                  @map("price_pkr")
+  priceUsd  Int                  @map("price_usd")
+  interval  SubscriptionInterval
+  // Null = unlimited. Add further limit columns here as the product needs them.
+  maxItems  Int?                 @map("max_items")
+  // Soft-retire flag (§2): false hides the package from new signups while
+  // existing subscribers keep it. Hard delete is only permitted when no
+  // Subscription references the row at all — see RootPackagesService.
+  isActive  Boolean              @default(true) @map("is_active")
+  sortOrder Int                  @default(0) @map("sort_order")
+  createdAt DateTime             @default(now()) @map("created_at")
+  updatedAt DateTime             @updatedAt @map("updated_at")
+
+  subscriptions Subscription[]
+
+  @@map("subscription_packages")
+}
+
+model PromoCode {
+  id               Int               @id @default(autoincrement())
+  // Stored upper-cased (see CreatePromoCodeDto) so "SAVE10" and "save10"
+  // can never coexist as distinct codes.
+  code             String            @unique @db.VarChar(50)
+  discountType     PromoDiscountType @map("discount_type")
+  // percent: 1-100. fixed: minor currency units in `currency`.
+  amount           Int
+  // Required for fixed discounts, null for percent — enforced in the DTO,
+  // not the DB (Prisma/MySQL have no portable cross-column CHECK here).
+  currency         PromoCurrency?
+  appliesTo        PromoAppliesTo    @map("applies_to")
+  // Null = unlimited redemptions.
+  maxRedemptions   Int?              @map("max_redemptions")
+  timesRedeemed    Int               @default(0) @map("times_redeemed")
+  startsAt         DateTime?         @map("starts_at")
+  endsAt           DateTime?         @map("ends_at")
+  // The activate/deactivate toggle (§3) — flipping this to false must stop
+  // checkout validation immediately without deleting the row's history.
+  isActive         Boolean           @default(true) @map("is_active")
+  createdByAdminId Int               @map("created_by_admin_id")
+  createdAt        DateTime          @default(now()) @map("created_at")
+  updatedAt        DateTime          @updatedAt @map("updated_at")
+
+  createdBy   RootAdminUser     @relation(fields: [createdByAdminId], references: [id], onDelete: Restrict)
+  redemptions PromoRedemption[]
+
+  @@index([isActive])
+  @@map("promo_codes")
+}
+
+/// Records each time a promo code is redeemed, to enforce max_redemptions
+/// and show usage history (§3). Written by the User App's checkout flow —
+/// this schema exists now so that flow has somewhere to record redemptions
+/// against; the Root App itself only reads this table.
+model PromoRedemption {
+  id           Int      @id @default(autoincrement())
+  promoCodeId  Int      @map("promo_code_id")
+  restaurantId Int      @map("restaurant_id")
+  chargeId     Int?     @map("invoice_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  promoCode  PromoCode  @relation(fields: [promoCodeId], references: [id], onDelete: Cascade)
+  restaurant Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  charge     Charge?    @relation(fields: [chargeId], references: [id], onDelete: SetNull)
+
+  @@index([promoCodeId])
+  @@index([restaurantId])
+  @@map("promo_redemptions")
 }
 
 model SupportTicket {
@@ -411,18 +623,153 @@ model Feedback {
 /// who did what, when — to an audit trail"). Append-only; never updated or
 /// deleted by application code.
 model AdminAuditLog {
-  id           Int      @id @default(autoincrement())
-  adminUserId  Int      @map("admin_user_id")
-  action       String   @db.VarChar(100)
-  targetType   String?  @map("target_type") @db.VarChar(50)
-  targetId     Int?     @map("target_id")
+  id          Int      @id @default(autoincrement())
+  adminUserId Int      @map("admin_user_id")
+  action      String   @db.VarChar(100)
+  targetType  String?  @map("target_type") @db.VarChar(50)
+  targetId    Int?     @map("target_id")
   // Free-form context (e.g. rejection note) — never secrets/tokens (spec §7.7).
-  metadata     String?  @db.Text
-  createdAt    DateTime @default(now()) @map("created_at")
+  metadata    String?  @db.Text
+  createdAt   DateTime @default(now()) @map("created_at")
 
   admin User @relation(fields: [adminUserId], references: [id], onDelete: Cascade)
 
   @@index([adminUserId])
   @@index([targetType, targetId])
   @@map("admin_audit_logs")
+}
+
+// ---------------------------------------------------------------------------
+// Root App (rootApp/ROOT-APP-Implementation-Spec.md) — platform operator's
+// separate control-center app. RootAdminUser is a fully independent
+// identity from the customer-facing User table: its own auth, its own
+// refresh tokens, its own audit log (spec §2, §5 "admin sessions
+// independent from customer sessions").
+// ---------------------------------------------------------------------------
+
+model RootAdminUser {
+  id                  Int           @id @default(autoincrement())
+  email               String        @unique @db.VarChar(255)
+  passwordHash        String        @map("password_hash") @db.VarChar(255)
+  role                RootAdminRole @default(support)
+  // TOTP is mandatory (spec §5) — encrypted at rest (AES-256-GCM, key from
+  // ROOT_TOTP_ENCRYPTION_KEY), never stored/logged in plaintext. Null until
+  // the admin completes first-login enrollment.
+  totpSecretEncrypted String?       @map("totp_secret_encrypted") @db.VarChar(255)
+  totpEnabled         Boolean       @default(false) @map("totp_enabled")
+  // JSON array of argon2-hashed one-time backup codes (same protection as
+  // passwords — shown to the admin exactly once, at enrollment).
+  backupCodesHashed   String?       @map("backup_codes_hashed") @db.Text
+  // Auth hardening (spec §7.3, reused here), same shape as User.
+  failedLoginAttempts Int           @default(0) @map("failed_login_attempts")
+  lockedUntil         DateTime?     @map("locked_until")
+  // jti of the one 2FA challenge token currently allowed for this admin.
+  // Each password step overwrites it and a successful code clears it, so a
+  // challenge token is single-use and an older one stops working.
+  totpChallengeJti    String?       @map("totp_challenge_jti") @db.VarChar(64)
+  // Last accepted TOTP time step; codes from this step or earlier are
+  // rejected, so a code can't be replayed within its 30-second step.
+  lastTotpStep        Int?          @map("last_totp_step")
+  createdAt           DateTime      @default(now()) @map("created_at")
+  updatedAt           DateTime      @updatedAt @map("updated_at")
+
+  refreshTokens    RootRefreshToken[]
+  modelGenerations ModelGeneration[]
+  auditLogs        RootAuditLog[]
+  promoCodes       PromoCode[]
+
+  @@map("root_admin_users")
+}
+
+/// Rotated refresh tokens for Root App sessions — same single-use-hash
+/// pattern as RefreshToken, but a fully separate table/FK so a Root App
+/// session can never be confused with a customer session.
+model RootRefreshToken {
+  id        Int      @id @default(autoincrement())
+  adminId   Int      @map("admin_id")
+  tokenHash String   @map("token_hash") @db.VarChar(255)
+  revoked   Boolean  @default(false)
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  admin RootAdminUser @relation(fields: [adminId], references: [id], onDelete: Cascade)
+
+  @@index([adminId])
+  @@map("root_refresh_tokens")
+}
+
+/// Security audit trail for the Root App (spec §5: "every admin action —
+/// who, what, when, from which IP"). Unlike AnalyticsEvent.ipHash (diner
+/// privacy), this stores the real IP: it's an internal admin action log
+/// meant for incident investigation, not diner-facing analytics.
+/// Append-only; never updated or deleted by application code.
+model RootAuditLog {
+  id         Int      @id @default(autoincrement())
+  adminId    Int      @map("admin_id")
+  action     String   @db.VarChar(100)
+  targetType String?  @map("target_type") @db.VarChar(50)
+  targetId   Int?     @map("target_id")
+  // Free-form context — never secrets/tokens (spec §7.7).
+  metadata   String?  @db.Text
+  ipAddress  String?  @map("ip_address") @db.VarChar(64)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  admin RootAdminUser @relation(fields: [adminId], references: [id], onDelete: Cascade)
+
+  @@index([adminId])
+  @@index([targetType, targetId])
+  @@map("root_audit_logs")
+}
+
+/// Home-page contact / photography enquiries (documents/
+/// TASK-home-page-content.md §5). Stored so none are lost if email delivery
+/// fails or isn't configured yet; IP kept only as a keyed hash (spec §7.7).
+model ContactEnquiry {
+  id           Int                @id @default(autoincrement())
+  name         String             @db.VarChar(100)
+  email        String             @db.VarChar(254)
+  businessName String?            @map("business_name") @db.VarChar(200)
+  message      String             @db.Text
+  ipHash       String             @map("ip_hash") @db.VarChar(64)
+  emailStatus  ContactEmailStatus @map("email_status")
+  createdAt    DateTime           @default(now()) @map("created_at")
+  updatedAt    DateTime           @updatedAt @map("updated_at")
+
+  @@index([createdAt])
+  @@map("contact_enquiries")
+}
+
+enum ContactEmailStatus {
+  sent
+  not_configured
+  failed
+}
+
+/// One row per Tripo job submitted (spec §11.4: log the task_id for every
+/// job). Also the source for the per-user daily generation cap, since every
+/// row is a paid Tripo call.
+model ModelGeneration {
+  id           Int      @id @default(autoincrement())
+  restaurantId Int      @map("restaurant_id")
+  // Exactly one of userId (owner-triggered) or rootAdminId
+  // (admin-triggered regeneration) is set.
+  userId       Int?     @map("user_id")
+  rootAdminId  Int?     @map("root_admin_id")
+  menuItemId   Int?     @map("menu_item_id")
+  tripoTaskId  String   @map("tripo_task_id") @db.VarChar(255)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  restaurant Restaurant     @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  user       User?          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rootAdmin  RootAdminUser? @relation(fields: [rootAdminId], references: [id], onDelete: Cascade)
+  // SetNull: deleting a dish must not erase the record of a paid job, or
+  // delete-and-recreate would reset the daily cap.
+  menuItem   MenuItem?      @relation(fields: [menuItemId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([rootAdminId, createdAt])
+  @@index([restaurantId])
+  @@index([menuItemId])
+  @@map("model_generations")
 }

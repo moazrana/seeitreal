@@ -1,5 +1,9 @@
 import { Module } from '@nestjs/common';
 import { RestaurantsModule } from '../restaurants/restaurants.module';
+import { ManualModelUploadService } from './manual-model-upload.service';
+import { ModelMaterialService } from './model-material.service';
+import { ModelOptimizationService } from './model-optimization.service';
+import { ModelScalingService } from './model-scaling.service';
 import { TripoClientService } from './tripo-client.service';
 import { TripoGenerationService } from './tripo-generation.service';
 import { TripoPollCron } from './tripo-poll.cron';
@@ -14,7 +18,11 @@ import { UsdzConversionService } from './usdz-conversion.service';
     TripoGenerationService,
     TripoPollCron,
     UsdzConversionService,
+    ModelScalingService,
+    ModelOptimizationService,
+    ModelMaterialService,
+    ManualModelUploadService,
   ],
-  exports: [TripoGenerationService],
+  exports: [TripoGenerationService, ManualModelUploadService],
 })
 export class TripoModule {}

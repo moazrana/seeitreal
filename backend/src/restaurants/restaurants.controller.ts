@@ -4,8 +4,6 @@ import {
   Controller,
   Delete,
   Get,
-  Param,
-  ParseIntPipe,
   Patch,
   Post,
   UploadedFile,
@@ -13,6 +11,7 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { RestaurantIdFromSlug } from '../common/decorators/slug-param.decorators';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { MAX_UPLOAD_BYTES } from '../uploads/image-upload.constants';
@@ -39,39 +38,39 @@ export class RestaurantsController {
     return this.restaurantsService.findAllForUser(user);
   }
 
-  @Get(':id')
+  @Get(':restaurantSlug')
   findOne(
     @CurrentUser() user: AuthenticatedUser,
-    @Param('id', ParseIntPipe) id: number,
+    @RestaurantIdFromSlug() id: number,
   ) {
     return this.restaurantsService.assertOwnership(id, user);
   }
 
-  @Patch(':id')
+  @Patch(':restaurantSlug')
   update(
     @CurrentUser() user: AuthenticatedUser,
-    @Param('id', ParseIntPipe) id: number,
+    @RestaurantIdFromSlug() id: number,
     @Body() dto: UpdateRestaurantDto,
   ) {
     return this.restaurantsService.update(id, user, dto);
   }
 
-  @Delete(':id')
+  @Delete(':restaurantSlug')
   remove(
     @CurrentUser() user: AuthenticatedUser,
-    @Param('id', ParseIntPipe) id: number,
+    @RestaurantIdFromSlug() id: number,
   ) {
     return this.restaurantsService.remove(id, user);
   }
 
   // See ImageUploadService for the full §7.5 checklist this goes through.
-  @Post(':id/logo')
+  @Post(':restaurantSlug/logo')
   @UseInterceptors(
     FileInterceptor('file', { limits: { fileSize: MAX_UPLOAD_BYTES } }),
   )
   async uploadLogo(
     @CurrentUser() user: AuthenticatedUser,
-    @Param('id', ParseIntPipe) id: number,
+    @RestaurantIdFromSlug() id: number,
     @UploadedFile() file?: Express.Multer.File,
   ) {
     if (!file) {

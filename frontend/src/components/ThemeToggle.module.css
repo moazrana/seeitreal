@@ -1,0 +1,72 @@
+/* Segmented System / Light / Dark control. Scoped so the dashboard's
+ * global `label` / `input` rules in index.css don't restyle it. */
+
+.toggle {
+  display: inline-flex;
+  gap: 2px;
+  margin: 0;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  min-inline-size: 0;
+}
+
+.option {
+  display: block;
+  position: relative;
+  margin: 0;
+  gap: 0;
+  font-size: inherit;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.face {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+}
+
+.option:hover .face {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+.input:checked + .face {
+  color: var(--text);
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+
+.input:focus-visible + .face {
+  outline: 2px solid var(--accent-strong);
+  outline-offset: 1px;
+}
+
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}

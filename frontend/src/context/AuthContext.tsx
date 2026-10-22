@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { authApi } from '../api/auth';
+import type { SignupInput } from '../api/auth';
 import { setAccessToken, setSessionExpiredHandler } from '../api/client';
 import type { PublicUser } from '../api/types';
 import { AuthContext } from './auth-context';
@@ -31,10 +32,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(res.user);
   }, []);
 
-  const signup = useCallback(async (email: string, password: string) => {
-    const res = await authApi.signup(email, password);
+  const signup = useCallback(async (input: SignupInput) => {
+    const res = await authApi.signup(input);
     setAccessToken(res.accessToken);
     setUser(res.user);
+    return res.restaurant;
   }, []);
 
   const logout = useCallback(async () => {

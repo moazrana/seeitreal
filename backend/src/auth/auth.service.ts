@@ -8,8 +8,9 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import * as argon2 from 'argon2';
-import { UserRole } from '@ar-menu/shared';
+import { BusinessType, UserRole } from '@ar-menu/shared';
 import { PrismaService } from '../prisma/prisma.service';
+import { generatePublicSlug } from '../common/utils/slug.util';
 import type { LoginDto } from './dto/login.dto';
 import type { SignupDto } from './dto/signup.dto';
 import type { JwtPayload } from './types/jwt-payload.interface';
@@ -53,8 +54,25 @@ export class AuthService {
     const passwordHash = await argon2.hash(dto.password, {
       type: argon2.argon2id,
     });
-    const user = await this.prisma.user.create({
-      data: { email: dto.email, passwordHash, role: UserRole.OWNER },
+
+    // Signup creates the owner's account and their first restaurant
+    // together — the restaurant create depends on the user's freshly
+    // generated id, so this needs the interactive (callback) transaction
+    // form rather than the array form used elsewhere in this file.
+    const { user, restaurant } = await this.prisma.$transaction(async (tx) => {
+      const user = await tx.user.create({
+        data: { email: dto.email, passwordHash, role: UserRole.OWNER },
+      });
+      const restaurant = await tx.restaurant.create({
+        data: {
+          ownerUserId: user.id,
+          name: dto.businessName,
+          slug: generatePublicSlug(dto.businessName),
+          address: dto.address,
+          businessType: dto.businessType ?? BusinessType.RESTAURANT,
+        },
+      });
+      return { user, restaurant };
     });
 
     await this.issueEmailVerificationToken(user.id, user.email);
@@ -64,7 +82,7 @@ export class AuthService {
       user.email,
       user.role as UserRole,
     );
-    return { user: this.toPublicUser(user), ...tokens };
+    return { user: this.toPublicUser(user), restaurant, ...tokens };
   }
 
   async login(dto: LoginDto) {

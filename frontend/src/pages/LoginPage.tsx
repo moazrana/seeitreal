@@ -4,6 +4,8 @@ import { Link, useNavigate } from 'react-router-dom';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { errorMessage } from '../lib/errors';
 import { useAuth } from '../context/useAuth';
+import { AuthLayout } from './auth/AuthLayout';
+import styles from './auth/auth.module.css';
 
 export function LoginPage() {
   const { login } = useAuth();
@@ -19,6 +21,7 @@ export function LoginPage() {
     setSubmitting(true);
     try {
       await login(email, password);
+      // Land on the multi-restaurant dashboard.
       navigate('/restaurants');
     } catch (err) {
       setError(errorMessage(err));
@@ -28,13 +31,21 @@ export function LoginPage() {
   }
 
   return (
-    <div className="auth-page">
-      <form className="auth-card" onSubmit={handleSubmit}>
-        <h1>Log in</h1>
+    <AuthLayout
+      title="Welcome back"
+      subtitle="Log in to manage your menu."
+      footer={
+        <>
+          No account? <Link to="/signup">Sign up</Link>
+        </>
+      }
+    >
+      <form className={styles.form} onSubmit={handleSubmit}>
         <ErrorBanner message={error} />
-        <label>
+        <label className={styles.field}>
           Email
           <input
+            className={styles.input}
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
@@ -42,9 +53,10 @@ export function LoginPage() {
             autoComplete="email"
           />
         </label>
-        <label>
+        <label className={styles.field}>
           Password
           <input
+            className={styles.input}
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
@@ -52,13 +64,10 @@ export function LoginPage() {
             autoComplete="current-password"
           />
         </label>
-        <button type="submit" disabled={submitting}>
+        <button className={styles.submit} type="submit" disabled={submitting}>
           {submitting ? 'Logging in…' : 'Log in'}
         </button>
-        <p className="auth-switch">
-          No account? <Link to="/signup">Sign up</Link>
-        </p>
       </form>
-    </div>
+    </AuthLayout>
   );
 }

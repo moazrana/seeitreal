@@ -1,0 +1,1053 @@
+/* SeeItReal marketing landing page.
+ *
+ * Scoped under .root so page-specific rules here never leak into the
+ * dashboard's global styles in ../../index.css, and vice versa. Colours come
+ * from the shared light/dark role tokens (@ar-menu/shared theme.css;
+ * documents/USER-APP-theming.md §2), so the app reads as one product across
+ * marketing site, auth, and dashboard in both themes. */
+
+.root {
+
+  --font-display:
+    'Space Grotesk', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-body: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: clip;
+}
+
+.root :global(*) {
+  box-sizing: border-box;
+}
+
+.root a {
+  color: inherit;
+}
+
+.root :global(:focus-visible) {
+  outline: 2px solid var(--accent-strong);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+.container {
+  max-width: 1140px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+.section {
+  padding: 100px 0;
+  opacity: 0;
+  transform: translateY(18px);
+  transition:
+    opacity 0.7s ease,
+    transform 0.7s ease;
+}
+
+.section.visible {
+  opacity: 1;
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .section {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+}
+
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  padding: 6px 14px;
+  border-radius: 999px;
+}
+
+.gradText {
+  background: var(--grad-text);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.h2 {
+  font-family: var(--font-display);
+  font-size: clamp(28px, 4.5vw, 44px);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  margin: 0 0 14px;
+}
+
+.sectionIntro {
+  max-width: 42ch;
+  color: var(--text-muted);
+  font-size: 16px;
+  margin: 0 0 56px;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 13px 26px;
+  border-radius: 999px;
+  font-size: 15px;
+  font-weight: 500;
+  font-family: var(--font-body);
+  text-decoration: none;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition:
+    transform 0.2s ease,
+    border-color 0.2s ease,
+    background 0.2s ease;
+}
+
+.btn:hover {
+  transform: translateY(-1px);
+}
+
+.btnPrimary {
+  background: var(--grad);
+  color: var(--on-grad);
+  font-weight: 600;
+}
+
+.btnGhost {
+  background: transparent;
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.btnGhost:hover {
+  border-color: var(--accent-strong);
+}
+
+/* ---------- Nav ---------- */
+
+.nav {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 40;
+  border-bottom: 1px solid transparent;
+  background: transparent;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  transition:
+    background 0.25s ease,
+    border-color 0.25s ease;
+}
+
+.navScrolled {
+  background: var(--header-bg);
+  border-bottom-color: var(--border);
+}
+
+.navInner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 24px;
+}
+
+.wordmark {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-display);
+  font-size: 19px;
+  font-weight: 600;
+  text-decoration: none;
+  color: var(--text);
+}
+
+.wordmarkGlyph {
+  width: 24px;
+  height: 24px;
+  display: block;
+}
+
+.navLinks {
+  display: flex;
+  align-items: center;
+  gap: 32px;
+}
+
+.navLink {
+  font-size: 14.5px;
+  color: var(--text-muted);
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+.navLink:hover {
+  color: var(--text);
+}
+
+.navCta {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.navToggle {
+  display: none;
+  background: none;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  width: 38px;
+  height: 38px;
+  color: var(--text);
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+}
+
+.navMobilePanel {
+  display: none;
+}
+
+/* Theme toggle lives in the nav bar on wide screens and inside the menu
+ * panel on phones, where the bar has no room for it. */
+.navThemeMobile {
+  display: none;
+}
+
+@media (max-width: 760px) {
+  .navLinks {
+    position: fixed;
+    inset: 64px 16px auto 16px;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 2px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 8px;
+    transform: translateY(-12px);
+    opacity: 0;
+    pointer-events: none;
+    transition:
+      opacity 0.2s ease,
+      transform 0.2s ease;
+  }
+
+  .navLinks.navLinksOpen {
+    transform: none;
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .navLink {
+    padding: 12px 14px;
+    border-radius: 10px;
+  }
+
+  .navLink:hover {
+    background: var(--surface-hover);
+  }
+
+  .navCta .navLink {
+    display: none;
+  }
+
+  .navToggle {
+    display: inline-flex;
+  }
+
+  /* Qualified so it outranks the toggle's own display rule regardless of
+   * stylesheet order. */
+  .navCta .navThemeDesktop {
+    display: none;
+  }
+
+  .navThemeMobile {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px 6px;
+    margin-top: 4px;
+    border-top: 1px solid var(--border);
+    color: var(--text-muted);
+    font-size: 14.5px;
+  }
+}
+
+/* ---------- Hero ---------- */
+
+.hero {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-height: 100vh;
+  min-height: 100svh;
+  padding: 120px 0 64px;
+  text-align: center;
+  overflow: clip;
+}
+
+.heroInner {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+}
+
+/* Radial scrim behind the headline (documents/TASK-hero-3d-fix.md §4): the
+ * copy stays legible over the gem at every rotation angle. The colour is a
+ * theme token, so light mode gets a light scrim rather than a dark smudge. */
+.heroInner::before {
+  content: '';
+  position: absolute;
+  inset: -8% -12%;
+  z-index: -1;
+  background: radial-gradient(ellipse 70% 70% at 50% 50%, var(--hero-scrim), transparent 70%);
+  pointer-events: none;
+}
+
+.heroPill {
+  margin-bottom: 28px;
+}
+
+.h1 {
+  font-family: var(--font-display);
+  font-size: clamp(38px, 7vw, 74px);
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: 1.06;
+  margin: 0 auto 22px;
+  max-width: 18ch;
+}
+
+.heroSub {
+  max-width: 46ch;
+  margin: 0 auto 40px;
+  color: var(--text-muted);
+  font-size: clamp(15px, 2vw, 17.5px);
+}
+
+.heroActions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.heroScroll {
+  position: absolute;
+  left: 50%;
+  bottom: 28px;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-faint);
+  font-size: 12.5px;
+}
+
+.heroScrollLine {
+  width: 1px;
+  height: 34px;
+  background: linear-gradient(var(--border-strong), transparent);
+  animation: scrollHint 2s ease-in-out infinite;
+}
+
+@keyframes scrollHint {
+  0%,
+  100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* ---------- 3D viewfinder ---------- */
+
+/* The canvas itself renders full-bleed (the point cloud spans the whole
+ * hero, like a starfield), but the decorative viewfinder — brackets +
+ * scan-line — frames a smaller, contained box around where the diamond
+ * actually sits, so the "AR viewfinder" reads as focused on the object
+ * rather than on the whole screen. */
+.heroCanvas {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+}
+
+.sceneCanvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.heroFrame {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 1;
+  width: min(620px, 62vw);
+  height: min(600px, 68vh);
+  pointer-events: none;
+}
+
+/* Fades the scene into the flat page background at the bottom of the
+ * hero so the next section doesn't start on a hard seam. */
+.heroFade {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 220px;
+  z-index: 1;
+  pointer-events: none;
+  background: linear-gradient(to bottom, transparent, var(--bg));
+}
+
+.bracket {
+  position: absolute;
+  width: 34px;
+  height: 34px;
+  border-color: var(--accent-strong);
+  opacity: 0.7;
+}
+
+.bracketTl {
+  top: -8px;
+  left: -8px;
+  border-top: 2px solid;
+  border-left: 2px solid;
+  border-top-left-radius: 10px;
+}
+
+.bracketTr {
+  top: -8px;
+  right: -8px;
+  border-top: 2px solid;
+  border-right: 2px solid;
+  border-top-right-radius: 10px;
+}
+
+.bracketBl {
+  bottom: -8px;
+  left: -8px;
+  border-bottom: 2px solid;
+  border-left: 2px solid;
+  border-bottom-left-radius: 10px;
+}
+
+.bracketBr {
+  bottom: -8px;
+  right: -8px;
+  border-bottom: 2px solid;
+  border-right: 2px solid;
+  border-bottom-right-radius: 10px;
+}
+
+.scanLine {
+  position: absolute;
+  left: 6%;
+  right: 6%;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--teal), transparent);
+  box-shadow: 0 0 12px rgb(var(--teal-rgb) / calc(var(--glow-strength) * 3.2));
+  animation: scanSweep 3.6s ease-in-out infinite;
+}
+
+@keyframes scanSweep {
+  0% {
+    top: 4%;
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+  }
+  90% {
+    opacity: 1;
+  }
+  100% {
+    top: 94%;
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scanLine {
+    animation: none;
+    opacity: 0;
+  }
+
+  .heroScrollLine {
+    animation: none;
+    opacity: 0.6;
+  }
+}
+
+/* ---------- How it works ---------- */
+
+.steps {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 28px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+@media (max-width: 900px) {
+  .steps {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 560px) {
+  .steps {
+    grid-template-columns: 1fr;
+  }
+}
+
+.step {
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+
+.stepFirst {
+  border-image: var(--grad) 1;
+  border-top: 1px solid;
+}
+
+.stepNumber {
+  font-family: var(--font-display);
+  font-size: 13px;
+  color: var(--text-faint);
+  margin-bottom: 14px;
+}
+
+.stepTitle {
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  margin: 0 0 8px;
+}
+
+.stepBody {
+  color: var(--text-muted);
+  font-size: 15px;
+  max-width: 32ch;
+  margin: 0;
+}
+
+/* ---------- Features (bento) ---------- */
+
+.bento {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(2, auto);
+  gap: 20px;
+}
+
+.bentoCard {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 18px;
+  padding: 32px;
+}
+
+.bentoGlow {
+  position: absolute;
+  width: 240px;
+  height: 240px;
+  border-radius: 50%;
+  filter: blur(60px);
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+.bentoHero {
+  grid-column: span 1;
+  grid-row: span 2;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  min-height: 420px;
+}
+
+.bentoHero .bentoGlow {
+  top: -60px;
+  right: -60px;
+  background: var(--blue);
+}
+
+.bentoWide {
+  grid-column: span 2;
+}
+
+.bentoWide .bentoGlow {
+  bottom: -80px;
+  left: 40%;
+  background: var(--violet);
+}
+
+.bentoStandard .bentoGlow {
+  top: -50px;
+  left: -50px;
+  background: var(--teal);
+}
+
+.bentoStatement {
+  grid-column: span 2;
+  display: flex;
+  align-items: center;
+}
+
+.bentoStatement .bentoGlow {
+  top: -60px;
+  right: 20%;
+  background: var(--blue);
+}
+
+@media (max-width: 900px) {
+  .bento {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .bentoHero {
+    grid-column: span 2;
+    min-height: 320px;
+  }
+
+  .bentoWide,
+  .bentoStatement {
+    grid-column: span 2;
+  }
+}
+
+@media (max-width: 640px) {
+  .bento {
+    grid-template-columns: 1fr;
+  }
+
+  .bentoHero,
+  .bentoWide,
+  .bentoStatement {
+    grid-column: span 1;
+  }
+}
+
+.bentoTitle {
+  font-family: var(--font-display);
+  font-size: 19px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  margin: 0 0 8px;
+  position: relative;
+}
+
+.bentoBody {
+  color: var(--text-muted);
+  font-size: 15px;
+  max-width: 42ch;
+  margin: 0;
+  position: relative;
+}
+
+.bentoStatement .bentoBody {
+  font-family: var(--font-display);
+  font-size: clamp(20px, 2.6vw, 27px);
+  font-weight: 500;
+  color: var(--text);
+  letter-spacing: -0.01em;
+  max-width: 22ch;
+}
+
+.miniAr {
+  position: relative;
+  align-self: flex-start;
+  width: 100%;
+  aspect-ratio: 1;
+  margin-bottom: 24px;
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  background: radial-gradient(circle at 30% 20%, rgb(var(--violet-rgb) / calc(var(--glow-strength) * 1.15)), transparent 60%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.miniArGlyph {
+  width: 40%;
+  height: 40%;
+  opacity: 0.9;
+}
+
+/* ---------- Beyond menus ---------- */
+
+.beyondPanel {
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  background: var(--surface);
+  padding: 56px;
+  text-align: center;
+}
+
+.beyondPanel .h2 {
+  margin-bottom: 12px;
+}
+
+.beyondSub {
+  color: var(--text-muted);
+  max-width: 40ch;
+  margin: 0 auto 32px;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px;
+}
+
+.chip {
+  padding: 9px 18px;
+  border-radius: 999px;
+  font-size: 14px;
+  border: 1px solid var(--border-strong);
+  color: var(--text);
+}
+
+.chipLive {
+  border-color: transparent;
+  background: var(--grad);
+  color: var(--on-grad);
+  font-weight: 600;
+}
+
+.chipSoon {
+  color: var(--text-faint);
+  border-style: dashed;
+}
+
+/* ---------- CTA band ---------- */
+
+.ctaBand {
+  padding-bottom: 140px;
+}
+
+.ctaPanel {
+  position: relative;
+  overflow: hidden;
+  text-align: center;
+  border: 1px solid var(--border);
+  border-radius: 28px;
+  background: var(--surface-2);
+  padding: 72px 32px;
+}
+
+.ctaGlow {
+  position: absolute;
+  top: -180px;
+  left: 50%;
+  width: 640px;
+  height: 320px;
+  transform: translateX(-50%);
+  background: radial-gradient(closest-side, rgb(var(--violet-rgb) / calc(var(--glow-strength) * 1.6)), transparent 72%);
+  pointer-events: none;
+}
+
+.ctaPanel .h2 {
+  position: relative;
+  max-width: 20ch;
+  margin: 0 auto 32px;
+}
+
+.ctaPanel .btn {
+  position: relative;
+}
+
+/* ---------- Footer ---------- */
+
+.footer {
+  border-top: 1px solid var(--border);
+  padding: 48px 0;
+}
+
+.footerInner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-align: center;
+  color: var(--text-faint);
+  font-size: 13.5px;
+}
+
+.footerWordmark {
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* ---------- Food showcase (TASK-home-page-content.md §1, §3) ---------- */
+
+.showcaseGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+  gap: 20px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.showcaseCard {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: var(--surface);
+  overflow: hidden;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.showcaseCard:hover {
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-elev);
+}
+
+.showcaseViewer {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  background: radial-gradient(
+    circle at 50% 40%,
+    rgb(var(--violet-rgb) / calc(var(--glow-strength) * 0.8)),
+    transparent 70%
+  );
+  --poster-color: transparent;
+}
+
+.showcaseArButton {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 8px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.showcaseMeta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px 16px;
+  border-top: 1px solid var(--border);
+}
+
+.showcaseName {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.showcaseSize {
+  color: var(--text-muted);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.showcaseHint {
+  margin: 20px 0 0;
+  color: var(--text-muted);
+  font-size: 14px;
+  text-align: center;
+}
+
+/* ---------- "Imagine" statement (§2) ---------- */
+
+.imagine {
+  text-align: center;
+}
+
+.imagineLine {
+  max-width: 24ch;
+  margin: 0 auto;
+  font-family: var(--font-display);
+  font-size: clamp(26px, 4.6vw, 52px);
+  font-weight: 500;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  color: var(--text-muted);
+}
+
+.imagineLine + .imagineLine {
+  margin-top: clamp(36px, 6vw, 72px);
+}
+
+.imagineLead {
+  color: var(--text);
+  font-weight: 700;
+}
+
+/* ---------- Photography help + contact form (§4–5) ---------- */
+
+.contactGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: clamp(32px, 6vw, 72px);
+  align-items: start;
+}
+
+@media (max-width: 860px) {
+  .contactGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.photoHelpBody {
+  margin: 0 0 24px;
+  color: var(--text-muted);
+  font-size: 17px;
+  line-height: 1.6;
+}
+
+.photoHelpPoints {
+  display: grid;
+  gap: 12px;
+  margin: 0 0 32px;
+  padding: 0;
+  list-style: none;
+}
+
+.photoHelpPoints li {
+  position: relative;
+  padding-left: 30px;
+  line-height: 1.5;
+}
+
+.photoHelpPoints li::before {
+  content: '';
+  position: absolute;
+  top: 0.35em;
+  left: 0;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--grad);
+}
+
+.contactForm {
+  display: grid;
+  gap: 16px;
+  padding: clamp(20px, 4vw, 32px);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: var(--surface);
+  box-shadow: var(--shadow-elev);
+}
+
+.contactTitle {
+  margin: 0 0 4px;
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.contactField {
+  display: grid;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.contactField input,
+.contactField textarea {
+  width: 100%;
+  padding: 11px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 15px;
+}
+
+.contactField textarea {
+  resize: vertical;
+}
+
+.contactField input:focus-visible,
+.contactField textarea:focus-visible {
+  outline: none;
+  border-color: var(--accent-strong);
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+.optional {
+  color: var(--text-faint);
+  font-weight: 400;
+}
+
+.contactForm button[type='submit'] {
+  justify-self: start;
+  border: none;
+  cursor: pointer;
+}
+
+.contactForm button[type='submit']:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.contactStatus {
+  min-height: 1.5em;
+  margin: 0;
+  color: var(--accent-strong);
+  font-size: 14px;
+}
+
+.contactError {
+  color: var(--danger);
+}
+
+/* Off-screen rather than display:none — some bots skip display:none fields. */
+.honeypot {
+  position: absolute;
+  left: -10000px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}

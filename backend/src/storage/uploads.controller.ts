@@ -6,6 +6,7 @@ import { SkipThrottle } from '@nestjs/throttler';
 import type { Response } from 'express';
 import { StorageDriver } from '../config/env.validation';
 import { LocalDiskStorageProvider } from './providers/local-disk-storage.provider';
+import { isServableStorageKey } from './storage-keys';
 
 const CONTENT_TYPES: Record<string, string> = {
   '.jpg': 'image/jpeg',
@@ -21,10 +22,12 @@ const CONTENT_TYPES: Record<string, string> = {
  * self-hosted only — production points STORAGE_DRIVER=s3 at real object
  * storage/CDN instead, and this controller is simply unused).
  *
- * Deliberately not a generic `express.static` mount: the key shape is
- * validated (exactly `<prefix>/<random>.<ext>`, checked again against the
- * resolved on-disk path by LocalDiskStorageProvider) and files are only
- * ever read, never executed (spec §7.5).
+ * Deliberately not a generic `express.static` mount: only keys of the exact
+ * shape the platform generates — a known prefix plus `<48 hex>.<ext>` — are
+ * served (isServableStorageKey), and the resolved path is checked again by
+ * LocalDiskStorageProvider. Anything else is a 404, so this route can never
+ * read dotfiles, config or source code even if the storage root is
+ * misconfigured. Files are only ever read, never executed (spec §7.5).
  */
 @Controller('uploads')
 export class UploadsController {
@@ -46,6 +49,9 @@ export class UploadsController {
       throw new NotFoundException();
     }
 
+    if (!isServableStorageKey(prefix, filename)) {
+      throw new NotFoundException();
+    }
     const key = `${prefix}/${filename}`;
     let filePath: string;
     try {
