@@ -116,9 +116,20 @@ ${THEME_CSS}
     font-size: 0.8rem;
     font-weight: 600;
   }
+  .powered-by {
+    align-self: center;
+    margin-top: -0.25rem;
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    text-decoration: none;
+  }
+  .powered-by strong { color: var(--text); font-weight: 600; }
 </style>
 </head>
 `;
+
+/** Branding line under the 3D model. Constant markup, no request data. */
+const POWERED_BY = `<a class="powered-by" href="https://seeitreal.com" target="_blank" rel="noopener">Powered by <strong>seeItReal.com</strong></a>`;
 
 /** Real-world size caption — only shown once dimensions are set (spec:
  * TASK-real-world-ar-sizing.md §4, "only show it when the item has
@@ -191,6 +202,7 @@ export function renderItemPage(
   <button slot="ar-button" class="ar-button">View in your space</button>
 </model-viewer>
 <script src="${AR_VIEWER_THEME_SCRIPT_PATH}"></script>
+${POWERED_BY}
 ${renderDimensionsCaption(item)}`
     : item.photoUrl
       ? `<img class="photo" src="${escapeHtml(item.photoUrl)}" alt="${name}">
