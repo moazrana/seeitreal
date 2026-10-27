@@ -82,6 +82,16 @@ export interface SubscriptionPackage {
   sortOrder: number;
 }
 
+// How many dishes the restaurant may hold (GET .../dish-allowance). Trial
+// restaurants share one allowance per owner; paid ones use their package's
+// maxItems. maxItems null = unlimited. Display only — the server enforces.
+export interface DishAllowance {
+  plan: 'trial' | 'package';
+  packageName: string | null;
+  maxItems: number | null;
+  used: number;
+}
+
 export interface Subscription {
   id: number;
   restaurantId: number;
@@ -118,6 +128,8 @@ export interface ApiErrorBody {
   statusCode: number;
   message: string | string[];
   error?: string;
+  // Machine-readable reason, e.g. DISH_LIMIT_REACHED.
+  code?: string;
 }
 
 // ---- Dashboard overview (mango points 2).

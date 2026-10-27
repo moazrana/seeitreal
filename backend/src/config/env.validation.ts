@@ -170,6 +170,12 @@ class EnvironmentVariables {
   @Matches(/^\d+$/)
   TRIPO_DAILY_GENERATIONS_PER_USER?: string;
 
+  // Dishes allowed on the free trial, shared across an owner's trial
+  // restaurants. Defaults to TRIAL_MAX_DISHES (5) in DishLimitsService.
+  @IsOptional()
+  @Matches(/^\d+$/)
+  TRIAL_MAX_DISHES?: string;
+
   // Max Tripo regenerations one Root App admin may start per rolling 24
   // hours. Defaults to 50 in TripoGenerationService.
   @IsOptional()

@@ -5,7 +5,13 @@ import { billingApi } from '../api/billing';
 import { ApiError } from '../api/client';
 import { menuApi } from '../api/menu';
 import { restaurantsApi } from '../api/restaurants';
-import type { MenuCategory, MenuItem, Restaurant, Subscription } from '../api/types';
+import type {
+  DishAllowance,
+  MenuCategory,
+  MenuItem,
+  Restaurant,
+  Subscription,
+} from '../api/types';
 import { AppShell } from '../components/AppShell';
 import { CuisineTabs } from '../components/CuisineTabs';
 import { ErrorBanner } from '../components/ErrorBanner';
@@ -47,6 +53,10 @@ function isConflict(err: unknown): boolean {
   return err instanceof ApiError && err.status === 409;
 }
 
+function isDishLimitReached(err: unknown): boolean {
+  return err instanceof ApiError && err.body.code === 'DISH_LIMIT_REACHED';
+}
+
 function isInProgress(item: MenuItem): boolean {
   return item.arStatus === 'generating' || item.arStatus === 'qa';
 }
@@ -58,6 +68,7 @@ export function RestaurantDetailPage() {
   const [categories, setCategories] = useState<MenuCategory[]>([]);
   const [items, setItems] = useState<MenuItem[]>([]);
   const [subscription, setSubscription] = useState<Subscription | null>(null);
+  const [allowance, setAllowance] = useState<DishAllowance | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busyItemId, setBusyItemId] = useState<number | null>(null);
   const [qrItem, setQrItem] = useState<MenuItem | null>(null);
@@ -82,13 +93,15 @@ export function RestaurantDetailPage() {
       menuApi.listCategories(restaurantSlug),
       menuApi.listItems(restaurantSlug),
       billingApi.getSubscription(restaurantSlug),
+      menuApi.getDishAllowance(restaurantSlug),
     ])
-      .then(([r, c, i, sub]) => {
+      .then(([r, c, i, sub, a]) => {
         if (seq !== loadSeq.current) return;
         setRestaurant(r);
         setCategories(c);
         setItems(i);
         setSubscription(sub);
+        setAllowance(a);
       })
       .catch((err: unknown) => setError(errorMessage(err)));
   }
@@ -195,7 +208,14 @@ export function RestaurantDetailPage() {
       setItemLengthIn('');
       loadAll();
     } catch (err) {
-      if (isConflict(err)) {
+      if (isDishLimitReached(err)) {
+        showFeedback({
+          tone: 'warning',
+          title: 'Dish limit reached',
+          message: errorMessage(err),
+        });
+        loadAll();
+      } else if (isConflict(err)) {
         showFeedback({
           tone: 'warning',
           title: 'Already on your menu',
@@ -312,6 +332,9 @@ export function RestaurantDetailPage() {
   }
 
   const liveCount = items.filter((item) => item.arStatus === 'live').length;
+  const atDishLimit =
+    allowance !== null && allowance.maxItems !== null && allowance.used >= allowance.maxItems;
+  const plansUrl = `/restaurants/${restaurantSlug}/billing/plans`;
 
   // A deleted cuisine type can't stay selected.
   const activeCuisine: CuisineFilter =
@@ -437,7 +460,11 @@ export function RestaurantDetailPage() {
         <div className={s.sectionHead}>
           <h2>Menu items</h2>
           <span className={s.sectionCount}>
-            {items.length} dish{items.length === 1 ? '' : 'es'}
+            {allowance?.maxItems != null
+              ? `${allowance.used} of ${allowance.maxItems} dishes · ${
+                  allowance.plan === 'trial' ? 'Free trial' : `${allowance.packageName} plan`
+                }`
+              : `${items.length} dish${items.length === 1 ? '' : 'es'}`}
           </span>
         </div>
         <PhotoCaptureGuide />
@@ -708,7 +735,28 @@ export function RestaurantDetailPage() {
               Every dish needs a cuisine type — add one under Cuisine Types above first.
             </p>
           )}
-          <button type="submit" className={s.addDishSubmit} disabled={categories.length === 0}>
+          {allowance && atDishLimit && (
+            <div className="status-banner banner-warning" role="status">
+              <strong>
+                {allowance.plan === 'trial'
+                  ? `Your free trial includes ${allowance.maxItems} dishes`
+                  : `Your ${allowance.packageName} plan includes ${allowance.maxItems} dishes`}
+                .
+              </strong>{' '}
+              {allowance.plan === 'trial' && allowance.used > items.length
+                ? "That's shared across all your trial restaurants. "
+                : ''}
+              <Link to={plansUrl}>
+                {allowance.plan === 'trial' ? 'Choose a plan' : 'Upgrade your plan'}
+              </Link>{' '}
+              to add more, or delete a dish to make room.
+            </div>
+          )}
+          <button
+            type="submit"
+            className={s.addDishSubmit}
+            disabled={categories.length === 0 || atDishLimit}
+          >
             Add dish
           </button>
         </form>

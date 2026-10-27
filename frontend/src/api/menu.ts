@@ -1,5 +1,5 @@
 import { api } from './client';
-import type { MenuCategory, MenuItem } from './types';
+import type { DishAllowance, MenuCategory, MenuItem } from './types';
 
 export interface CreateCategoryInput {
   name: string;
@@ -24,6 +24,8 @@ export const menuApi = {
   deleteCategory: (restaurantSlug: string, categoryId: number) =>
     api.delete<void>(`/restaurants/${restaurantSlug}/categories/${categoryId}`),
 
+  getDishAllowance: (restaurantSlug: string) =>
+    api.get<DishAllowance>(`/restaurants/${restaurantSlug}/dish-allowance`),
   listItems: (restaurantSlug: string) =>
     api.get<MenuItem[]>(`/restaurants/${restaurantSlug}/items`),
   createItem: (restaurantSlug: string, input: CreateItemInput) =>
