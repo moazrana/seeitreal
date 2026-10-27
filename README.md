@@ -401,7 +401,8 @@ they only appear in API requests, never in a browser URL.
 | POST             | `/restaurants/:slug/logo`                            | JWT            | multipart image upload                                                                                 |
 | POST/GET         | `/restaurants/:slug/categories`                      | JWT            |                                                                                                        |
 | PATCH/DELETE     | `/restaurants/:slug/categories/:catId`               | JWT            |                                                                                                        |
-| POST/GET         | `/restaurants/:slug/items`                           | JWT            |                                                                                                        |
+| POST/GET         | `/restaurants/:slug/items`                           | JWT            | POST: 403 `DISH_LIMIT_REACHED` past the trial (5, shared per owner) or package `maxItems` limit        |
+| GET              | `/restaurants/:slug/dish-allowance`                  | JWT            | `{ plan, packageName, maxItems, used }` for the dish limit UI                                          |
 | GET/PATCH/DELETE | `/restaurants/:slug/items/:itemSlug`                 | JWT            |                                                                                                        |
 | POST             | `/restaurants/:slug/items/:itemSlug/photos`          | JWT            | multipart, 1–5 files (field `files`); resets AR status; 400 past 5 total                               |
 | DELETE           | `/restaurants/:slug/items/:itemSlug/photos/:photoId` | JWT            | 404 if the photo isn't this item's; leaves the 3D model/AR status untouched                            |

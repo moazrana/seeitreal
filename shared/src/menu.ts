@@ -35,3 +35,11 @@ export const DISH_PHOTO_JPEG_QUALITY = 82;
  * real chain on the platform.
  */
 export const MAX_RESTAURANTS_PER_OWNER = 20;
+
+/**
+ * Dishes allowed on the free trial (14 days, 5 dishes, 10 generations).
+ * Shared across all of an owner's trial restaurants. Paid limits come from
+ * each SubscriptionPackage's `maxItems`, not from code. The backend can
+ * override this with TRIAL_MAX_DISHES.
+ */
+export const TRIAL_MAX_DISHES = 5;

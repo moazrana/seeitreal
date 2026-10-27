@@ -1,17 +1,17 @@
 import {
   BadRequestException,
   ConflictException,
-  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { generatePublicSlug } from '../common/utils/slug.util';
 import { PrismaService } from '../prisma/prisma.service';
 import { RestaurantsService } from '../restaurants/restaurants.service';
 import { ImageUploadService } from '../uploads/image-upload.service';
 import type { AuthenticatedUser } from '../auth/types/authenticated-user.interface';
 import type { CreateMenuItemDto } from './dto/create-menu-item.dto';
+import { DishLimitsService } from './dish-limits.service';
 import { MAX_ITEM_PHOTOS } from './menu-items.constants';
 import type { UpdateMenuItemDto } from './dto/update-menu-item.dto';
 
@@ -37,6 +37,7 @@ export class MenuItemsService {
     private readonly prisma: PrismaService,
     private readonly restaurants: RestaurantsService,
     private readonly imageUpload: ImageUploadService,
+    private readonly dishLimits: DishLimitsService,
   ) {}
 
   async create(
@@ -44,24 +45,57 @@ export class MenuItemsService {
     user: AuthenticatedUser,
     dto: CreateMenuItemDto,
   ) {
-    await this.restaurants.assertOwnership(restaurantId, user);
-    await this.assertNameAvailable(restaurantId, dto.name);
-    await this.assertCategoryBelongs(restaurantId, dto.categoryId);
-    await this.assertUnderPlanItemLimit(restaurantId);
+    const restaurant = await this.restaurants.assertOwnership(
+      restaurantId,
+      user,
+    );
 
-    return this.prisma.menuItem.create({
-      include: PHOTOS_ORDERED,
-      data: {
-        restaurantId,
-        categoryId: dto.categoryId,
-        name: dto.name,
-        description: dto.description,
-        widthMm: dto.widthMm,
-        heightMm: dto.heightMm,
-        lengthMm: dto.lengthMm,
-        publicSlug: generatePublicSlug(dto.name),
+    // Limit check and insert happen in one transaction holding a lock on
+    // the owner, so parallel requests can't each pass the check and push
+    // the restaurant over its dish limit. READ COMMITTED makes the count
+    // see rows committed by the request that held the lock before us.
+    return this.prisma.$transaction(
+      async (tx) => {
+        await this.dishLimits.lockOwner(tx, restaurant.ownerUserId);
+        await this.assertNameAvailable(restaurantId, dto.name, undefined, tx);
+        await this.assertCategoryBelongs(restaurantId, dto.categoryId);
+        this.dishLimits.assertRoomForOneMore(
+          await this.dishLimits.allowanceFor(
+            tx,
+            restaurantId,
+            restaurant.ownerUserId,
+          ),
+        );
+        return tx.menuItem.create({
+          include: PHOTOS_ORDERED,
+          data: {
+            restaurantId,
+            categoryId: dto.categoryId,
+            name: dto.name,
+            description: dto.description,
+            widthMm: dto.widthMm,
+            heightMm: dto.heightMm,
+            lengthMm: dto.lengthMm,
+            publicSlug: generatePublicSlug(dto.name),
+          },
+        });
       },
-    });
+      { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted },
+    );
+  }
+
+  /** Dish limit and usage for the dashboard's "x of y dishes" and upgrade
+   * prompt. The server re-checks on every create; this is display only. */
+  async allowance(restaurantId: number, user: AuthenticatedUser) {
+    const restaurant = await this.restaurants.assertOwnership(
+      restaurantId,
+      user,
+    );
+    return this.dishLimits.allowanceFor(
+      this.prisma,
+      restaurantId,
+      restaurant.ownerUserId,
+    );
   }
 
   async findAll(restaurantId: number, user: AuthenticatedUser) {
@@ -233,31 +267,13 @@ export class MenuItemsService {
    * existing data may already hold duplicate dish names, and each has its
    * own printed QR code, so they can't be merged or renamed automatically.
    */
-  /** Enforces the restaurant's package `maxItems` (null = unlimited).
-   * Restaurants that never checked out have no package yet, so no limit
-   * applies here; generation is separately capped per user per day. */
-  private async assertUnderPlanItemLimit(restaurantId: number) {
-    const subscription = await this.prisma.subscription.findFirst({
-      where: { restaurantId },
-      orderBy: { createdAt: 'desc' },
-      select: { package: { select: { maxItems: true, name: true } } },
-    });
-    const maxItems = subscription?.package.maxItems;
-    if (maxItems == null) return;
-    const count = await this.prisma.menuItem.count({ where: { restaurantId } });
-    if (count >= maxItems) {
-      throw new ForbiddenException(
-        `Your ${subscription!.package.name} plan allows up to ${maxItems} dishes. Upgrade your plan to add more.`,
-      );
-    }
-  }
-
   private async assertNameAvailable(
     restaurantId: number,
     name: string,
     exceptId?: number,
+    db: Prisma.TransactionClient = this.prisma,
   ) {
-    const existing = await this.prisma.menuItem.findFirst({
+    const existing = await db.menuItem.findFirst({
       where: {
         restaurantId,
         name,

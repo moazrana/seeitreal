@@ -161,3 +161,19 @@ export class MenuItemsController {
     );
   }
 }
+
+// Separate path, not `items/allowance`, so it can never collide with a
+// dish whose public slug happens to be "allowance".
+@UseGuards(JwtAuthGuard)
+@Controller('restaurants/:restaurantSlug/dish-allowance')
+export class DishAllowanceController {
+  constructor(private readonly service: MenuItemsService) {}
+
+  @Get()
+  get(
+    @CurrentUser() user: AuthenticatedUser,
+    @RestaurantIdFromSlug() restaurantId: number,
+  ) {
+    return this.service.allowance(restaurantId, user);
+  }
+}

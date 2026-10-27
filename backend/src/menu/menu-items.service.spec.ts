@@ -3,11 +3,13 @@ import {
   ConflictException,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
 import { UserRole } from '@ar-menu/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { RestaurantsService } from '../restaurants/restaurants.service';
 import { ImageUploadService } from '../uploads/image-upload.service';
+import { DishLimitsService } from './dish-limits.service';
 import { MenuItemsService } from './menu-items.service';
 
 describe('MenuItemsService', () => {
@@ -22,7 +24,9 @@ describe('MenuItemsService', () => {
       delete: jest.Mock;
       count: jest.Mock;
     };
-    subscription: { findFirst: jest.Mock };
+    restaurant: { findMany: jest.Mock };
+    $transaction: jest.Mock;
+    $queryRaw: jest.Mock;
     menuItemPhoto: {
       createMany: jest.Mock;
       delete: jest.Mock;
@@ -48,8 +52,15 @@ describe('MenuItemsService', () => {
         delete: jest.fn(),
         count: jest.fn().mockResolvedValue(0),
       },
-      // No subscription (never checked out) by default: no item limit.
-      subscription: { findFirst: jest.fn().mockResolvedValue(null) },
+      // One restaurant, never checked out (on the free trial) by default.
+      restaurant: {
+        findMany: jest
+          .fn()
+          .mockResolvedValue([{ id: restaurant.id, subscriptions: [] }]),
+      },
+      // Interactive transaction: run the callback against the same mock.
+      $transaction: jest.fn(),
+      $queryRaw: jest.fn().mockResolvedValue([]),
       menuItemPhoto: {
         createMany: jest.fn(),
         delete: jest.fn(),
@@ -57,6 +68,9 @@ describe('MenuItemsService', () => {
       },
       menuCategory: { findUnique: jest.fn() },
     };
+    prisma.$transaction.mockImplementation(
+      (fn: (tx: typeof prisma) => Promise<unknown>) => fn(prisma),
+    );
     restaurants = { assertOwnership: jest.fn().mockResolvedValue(restaurant) };
     imageUpload = { processAndStore: jest.fn() };
 
@@ -66,6 +80,8 @@ describe('MenuItemsService', () => {
         { provide: PrismaService, useValue: prisma },
         { provide: RestaurantsService, useValue: restaurants },
         { provide: ImageUploadService, useValue: imageUpload },
+        DishLimitsService,
+        { provide: ConfigService, useValue: { get: () => undefined } },
       ],
     }).compile();
 
@@ -99,14 +115,31 @@ describe('MenuItemsService', () => {
     );
   });
 
-  it("refuses a new dish once the restaurant's plan item limit is reached", async () => {
+  function paidOn(maxItems: number | null, name: string, status = 'active') {
+    prisma.restaurant.findMany.mockResolvedValueOnce([
+      {
+        id: restaurant.id,
+        subscriptions: [
+          {
+            status,
+            currentPeriodEnd: new Date(Date.now() + 86_400_000),
+            package: { name, maxItems },
+          },
+        ],
+      },
+    ]);
+  }
+
+  function categoryExists() {
     prisma.menuCategory.findUnique.mockResolvedValueOnce({
       id: 3,
       restaurantId: restaurant.id,
     });
-    prisma.subscription.findFirst.mockResolvedValueOnce({
-      package: { maxItems: 10, name: 'Starter' },
-    });
+  }
+
+  it("refuses a new dish once the restaurant's package dish limit is reached", async () => {
+    categoryExists();
+    paidOn(10, 'Starter');
     prisma.menuItem.count.mockResolvedValueOnce(10);
 
     await expect(
@@ -115,14 +148,10 @@ describe('MenuItemsService', () => {
     expect(prisma.menuItem.create).not.toHaveBeenCalled();
   });
 
-  it('allows unlimited dishes on a plan with no item limit', async () => {
-    prisma.menuCategory.findUnique.mockResolvedValueOnce({
-      id: 3,
-      restaurantId: restaurant.id,
-    });
-    prisma.subscription.findFirst.mockResolvedValueOnce({
-      package: { maxItems: null, name: 'Pro' },
-    });
+  it('allows a dish while under the package limit', async () => {
+    categoryExists();
+    paidOn(10, 'Starter');
+    prisma.menuItem.count.mockResolvedValueOnce(9);
     prisma.menuItem.create.mockResolvedValueOnce({ id: 1 });
 
     await service.create(restaurant.id, owner, {
@@ -130,6 +159,57 @@ describe('MenuItemsService', () => {
       categoryId: 3,
     });
     expect(prisma.menuItem.create).toHaveBeenCalled();
+  });
+
+  it('allows unlimited dishes on a plan with no item limit', async () => {
+    categoryExists();
+    paidOn(null, 'Pro');
+    prisma.menuItem.count.mockResolvedValueOnce(500);
+    prisma.menuItem.create.mockResolvedValueOnce({ id: 1 });
+
+    await service.create(restaurant.id, owner, {
+      name: 'Burger',
+      categoryId: 3,
+    });
+    expect(prisma.menuItem.create).toHaveBeenCalled();
+  });
+
+  it('caps a trial restaurant at 5 dishes', async () => {
+    categoryExists();
+    prisma.menuItem.count.mockResolvedValueOnce(5);
+
+    await expect(
+      service.create(restaurant.id, owner, { name: 'Burger', categoryId: 3 }),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'DISH_LIMIT_REACHED',
+        plan: 'trial',
+        maxItems: 5,
+        message: expect.stringMatching(/free trial allows up to 5 dishes/),
+      }),
+    });
+    expect(prisma.menuItem.create).not.toHaveBeenCalled();
+  });
+
+  it('locks the owner and counts inside the create transaction', async () => {
+    categoryExists();
+    prisma.menuItem.create.mockResolvedValueOnce({ id: 1 });
+
+    await service.create(restaurant.id, owner, {
+      name: 'Burger',
+      categoryId: 3,
+    });
+
+    expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), {
+      isolationLevel: 'ReadCommitted',
+    });
+    const lockOrder = prisma.$queryRaw.mock.invocationCallOrder[0];
+    expect(lockOrder).toBeLessThan(
+      prisma.menuItem.count.mock.invocationCallOrder[0],
+    );
+    expect(lockOrder).toBeLessThan(
+      prisma.menuItem.create.mock.invocationCallOrder[0],
+    );
   });
 
   it('rejects a categoryId that belongs to a different restaurant', async () => {
